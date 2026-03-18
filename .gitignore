@@ -1,0 +1,5 @@
+node_modules/
+dist/
+.env
+*.log
+# Add any other large data or temporary folders here
