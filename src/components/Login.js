@@ -21,10 +21,6 @@ function Login() {
     setLoading(true);
     setError('');
 
-    // Check if this is admin deployment
-    const isAdminDeployment = window.location.hostname.includes('-admin') || 
-                              window.location.hostname.includes('admin.');
-
     try {
       // First try admin login
       let result = await api.login('admin', {

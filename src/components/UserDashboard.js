@@ -15,7 +15,7 @@ const PACKAGES = [
 export default function UserDashboard() {
   const [tab, setTab] = useState('add');
   const [user, setUser] = useState(null);
-  const [_properties, setProperties] = useState([]);
+  const [properties, setProperties] = useState([]);
   const [loading, setLoading] = useState(false);
   const [notification, setNotification] = useState(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
