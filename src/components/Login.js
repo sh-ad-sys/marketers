@@ -7,10 +7,9 @@ function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  
-  // Unified login form
+
   const [loginData, setLoginData] = useState({
-    identifier: '', // Can be name (marketer) or username (admin)
+    identifier: '',
     password: ''
   });
 
@@ -22,35 +21,33 @@ function Login() {
     setError('');
 
     try {
-      // First try admin login
+      // Attempt admin login
       let result = await api.login('admin', {
         username: loginData.identifier,
         password: loginData.password
       });
 
       if (result.success) {
-        // If admin login succeeds
+        localStorage.setItem('role', 'admin');
         navigate('/admin');
         return;
       }
 
-      // If admin fails, try marketer login
-      // For marketers, identifier is the name
+      // Attempt marketer login
       result = await api.login('marketer', {
         name: loginData.identifier,
         password: loginData.password
       });
 
       if (result.success) {
-        // If marketer login succeeds
+        localStorage.setItem('role', 'marketer');
         navigate('/dashboard');
         return;
       }
 
-      // If both fail
       setError('Invalid credentials. Please check your username/name and password.');
-      
     } catch (err) {
+      console.error('Login error:', err);
       setError('Login failed. Please try again.');
     } finally {
       setLoading(false);
@@ -75,20 +72,21 @@ function Login() {
           </div>
         )}
 
-        {/* Unified Login Form */}
         <form onSubmit={handleLogin}>
           <div className="user-form-group">
-            <label>Username</label>
+            <label>Username / Name</label>
             <input
               type="text"
               className="input"
               value={loginData.identifier}
-              onChange={(e) => setLoginData({...loginData, identifier: e.target.value})}
-              placeholder="Enter username"
+              onChange={(e) =>
+                setLoginData({ ...loginData, identifier: e.target.value })
+              }
+              placeholder="Enter username or name"
               required
             />
           </div>
-          
+
           <div className="user-form-group">
             <label>Password</label>
             <div style={{ position: 'relative' }}>
@@ -96,7 +94,9 @@ function Login() {
                 type={showPassword ? 'text' : 'password'}
                 className="input"
                 value={loginData.password}
-                onChange={(e) => setLoginData({...loginData, password: e.target.value})}
+                onChange={(e) =>
+                  setLoginData({ ...loginData, password: e.target.value })
+                }
                 placeholder="Enter your password"
                 required
                 style={{ paddingRight: '4rem' }}
@@ -110,38 +110,43 @@ function Login() {
                   transform: 'translateY(-50%)',
                   cursor: 'pointer',
                   color: '#6366f1',
-                  fontSize: '1rem'
+                  fontSize: '0.9rem'
                 }}
               >
-                {showPassword ? '👁️' : '👁️‍🗨️'}
+                {showPassword ? 'HIDE' : 'SHOW'}
               </span>
             </div>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
-            <button 
-              type="button" 
-              style={{ 
-                background: 'transparent', 
-                border: 'none', 
-                color: '#6366f1', 
+            <button
+              type="button"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#6366f1',
                 textDecoration: 'underline',
                 padding: 0,
                 fontSize: '0.85rem',
                 cursor: 'pointer'
               }}
-              onClick={() => alert('Please contact your administrator to reset your password.')}
+              onClick={() =>
+                alert('Please contact your administrator to reset your password.')
+              }
             >
               Forgot Password?
             </button>
           </div>
 
-          <button type="submit" className="btn btn-primary" disabled={loading} style={{ width: '100%', marginTop: '1.5rem' }}>
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={loading}
+            style={{ width: '100%', marginTop: '1.5rem' }}
+          >
             {loading ? 'Logging in...' : 'Login'}
           </button>
         </form>
-
-        
       </div>
     </div>
   );

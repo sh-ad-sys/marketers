@@ -1,7 +1,8 @@
 // PlotConnect API Service
 // Connects to PHP backend
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://marketers-backend.onrender.com';
+const API_BASE_URL =
+  process.env.REACT_APP_API_URL || 'https://marketers-backend.onrender.com';
 
 // Helper function for API calls
 async function fetchAPI(endpoint, options = {}) {
@@ -14,7 +15,7 @@ async function fetchAPI(endpoint, options = {}) {
       },
       credentials: 'include',
     });
-    
+
     const data = await response.json();
     return data;
   } catch (error) {
@@ -26,34 +27,34 @@ async function fetchAPI(endpoint, options = {}) {
 const api = {
   // Authentication
   async checkAuth() {
-    return await fetchAPI('/auth/check.php');
+    return await fetchAPI('/api/auth/check.php');   // FIXED
   },
 
   async login(type, credentials) {
-    return await fetchAPI('/auth/login.php', {
+    return await fetchAPI('/api/auth/login.php', {  // FIXED
       method: 'POST',
       body: JSON.stringify({ type, ...credentials }),
     });
   },
 
   async logout() {
-    return await fetchAPI('/auth/logout.php');
+    return await fetchAPI('/api/auth/logout.php');  // FIXED
   },
 
   // Properties (Marketer)
   async submitProperty(data) {
-    return await fetchAPI('/marketer/submit-property.php', {
+    return await fetchAPI('/api/marketer/submit-property.php', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   },
 
   async getMyProperties() {
-    return await fetchAPI('/marketer/my-properties.php');
+    return await fetchAPI('/api/marketer/my-properties.php');
   },
 
   async deleteProperty(id) {
-    return await fetchAPI('/marketer/delete-property.php', {
+    return await fetchAPI('/api/marketer/delete-property.php', {
       method: 'POST',
       body: JSON.stringify({ id }),
     });
@@ -61,40 +62,40 @@ const api = {
 
   // Admin
   async getAdminStats() {
-    return await fetchAPI('/admin/dashboard.php');
+    return await fetchAPI('/api/admin/dashboard.php');
   },
 
   async getMarketers() {
-    return await fetchAPI('/admin/marketers.php');
+    return await fetchAPI('/api/admin/marketers.php');
   },
 
   async addMarketer(data) {
-    return await fetchAPI('/admin/marketers.php', {
+    return await fetchAPI('/api/admin/marketers.php', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   },
 
   async deleteMarketer(id) {
-    return await fetchAPI('/admin/marketers.php', {
+    return await fetchAPI('/api/admin/marketers.php', {
       method: 'POST',
       body: JSON.stringify({ id, action: 'delete' }),
     });
   },
 
   async getAllProperties() {
-    return await fetchAPI('/admin/properties.php');
+    return await fetchAPI('/api/admin/properties.php');
   },
 
   async updatePropertyStatus(id, status) {
-    return await fetchAPI('/admin/properties.php', {
+    return await fetchAPI('/api/admin/properties.php', {
       method: 'POST',
       body: JSON.stringify({ id, status, action: 'update_status' }),
     });
   },
 
   async deletePropertyAdmin(id) {
-    return await fetchAPI('/admin/properties.php', {
+    return await fetchAPI('/api/admin/properties.php', {
       method: 'POST',
       body: JSON.stringify({ id, action: 'delete' }),
     });
