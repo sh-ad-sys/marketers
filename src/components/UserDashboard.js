@@ -15,6 +15,7 @@ const PACKAGES = [
 export default function UserDashboard() {
   const [tab, setTab] = useState('add');
   const [user, setUser] = useState(null);
+  // eslint-disable-next-line no-unused-vars
   const [properties, setProperties] = useState([]);
   const [loading, setLoading] = useState(false);
   const [notification, setNotification] = useState(null);

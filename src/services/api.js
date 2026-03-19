@@ -1,7 +1,7 @@
 // PlotConnect API Service
 // Connects to PHP backend
 
-const API_BASE_URL = 'https://marketers-backend.onrender.com';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://marketers-backend.onrender.com';
 
 // Helper function for API calls
 async function fetchAPI(endpoint, options = {}) {

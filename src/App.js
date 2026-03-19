@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import Login from './components/Login';
 import UserDashboard from './components/UserDashboard';
 import AdminDashboard from './components/AdminDashboard';
@@ -37,7 +37,6 @@ function AppRouter() {
 // Separate component to handle root redirect
 function RootRouter() {
   const navigate = useNavigate();
-  const location = useLocation();
   
   useEffect(() => {
     const hostname = window.location.hostname;
