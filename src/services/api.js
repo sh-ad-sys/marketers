@@ -1,7 +1,7 @@
 // PlotConnect API Service
-// Connects to PHP backend on localhost
+// Connects to PHP backend
 
-const API_BASE_URL = 'http://localhost:80/plotconnect/api';
+const API_BASE_URL = 'https://marketers-backend.onrender.com';
 
 // Helper function for API calls
 async function fetchAPI(endpoint, options = {}) {
