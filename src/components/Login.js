@@ -30,7 +30,7 @@ function Login() {
       if (result.success) {
         localStorage.setItem('isLoggedIn', 'true');
         localStorage.setItem('role', 'admin');
-        localStorage.setItem('username', result.data?.username || 'admin');
+        localStorage.setItem('username', result.data?.username || result.username || 'admin');
         navigate('/admin');
         return;
       }
@@ -44,7 +44,7 @@ function Login() {
       if (result.success) {
         localStorage.setItem('isLoggedIn', 'true');
         localStorage.setItem('role', 'marketer');
-        localStorage.setItem('name', result.data?.name || loginData.identifier);
+        localStorage.setItem('name', result.data?.name || result.name || loginData.identifier);
         navigate('/dashboard');
         return;
       }
@@ -68,6 +68,7 @@ function Login() {
       </div>
 
       <div className="user-card" style={{ maxWidth: '420px', margin: '0 auto', width: '90%' }}>
+        {/* Centered Login heading */}
         <h2 className="user-card-title" style={{ textAlign: 'center' }}>Login</h2>
 
         {error && (
@@ -117,7 +118,7 @@ function Login() {
                   fontSize: '0.9rem'
                 }}
               >
-                {showPassword ? '*' : '○'}
+                {showPassword ? '●' : '○'}
               </span>
             </div>
           </div>

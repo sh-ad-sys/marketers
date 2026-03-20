@@ -27,59 +27,59 @@ async function fetchAPI(endpoint, options = {}) {
 }
 
 const api = {
-  // AUTH
-  checkAuth: () => fetchAPI('/api/auth/check.php'),
+  // AUTH — routed through index.php via ?request=
+  checkAuth: () => fetchAPI('/?request=check-auth'),
 
   login: (type, credentials) =>
-    fetchAPI('/api/auth/login.php', {
+    fetchAPI('/?request=login', {
       method: 'POST',
       body: { type, ...credentials },
     }),
 
-  logout: () => fetchAPI('/api/auth/logout.php'),
+  logout: () => fetchAPI('/?request=logout'),
 
   // MARKETER
   submitProperty: (data) =>
-    fetchAPI('/api/marketer/submit-property.php', {
+    fetchAPI('/?request=submit-property', {
       method: 'POST',
       body: data,
     }),
 
-  getMyProperties: () => fetchAPI('/api/marketer/my-properties.php'),
+  getMyProperties: () => fetchAPI('/?request=my-properties'),
 
   deleteProperty: (id) =>
-    fetchAPI('/api/marketer/delete-property.php', {
+    fetchAPI('/?request=delete-property', {
       method: 'POST',
       body: { id },
     }),
 
   // ADMIN
-  getAdminStats: () => fetchAPI('/api/admin/dashboard.php'),
+  getAdminStats: () => fetchAPI('/?request=admin'),
 
-  getMarketers: () => fetchAPI('/api/admin/marketers.php'),
+  getMarketers: () => fetchAPI('/?request=marketers'),
 
   addMarketer: (data) =>
-    fetchAPI('/api/admin/marketers.php', {
+    fetchAPI('/?request=marketers', {
       method: 'POST',
       body: data,
     }),
 
   deleteMarketer: (id) =>
-    fetchAPI('/api/admin/marketers.php', {
+    fetchAPI('/?request=marketers', {
       method: 'POST',
       body: { id, action: 'delete' },
     }),
 
-  getAllProperties: () => fetchAPI('/api/admin/properties.php'),
+  getAllProperties: () => fetchAPI('/?request=all-properties'),
 
   updatePropertyStatus: (id, status) =>
-    fetchAPI('/api/admin/properties.php', {
+    fetchAPI('/?request=all-properties', {
       method: 'POST',
       body: { id, status, action: 'update_status' },
     }),
 
   deletePropertyAdmin: (id) =>
-    fetchAPI('/api/admin/properties.php', {
+    fetchAPI('/?request=all-properties', {
       method: 'POST',
       body: { id, action: 'delete' },
     }),
