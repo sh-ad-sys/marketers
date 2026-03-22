@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
-import './UserDashboard.css';
-import { AlignCenter } from 'lucide-react';
 
 function Login() {
   const [loading, setLoading] = useState(false);
