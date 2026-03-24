@@ -24,7 +24,7 @@ export default function UserDashboard() {
 
   const [form, setForm] = useState({
     owner_name: '', phone_number: '', property_name: '',
-    property_location: '', property_type: '', booking_type: '', package_selected: ''
+    property_location: '', property_type: [], booking_type: '', package_selected: ''
   });
 
   const [errors, setErrors] = useState({});
@@ -84,7 +84,7 @@ export default function UserDashboard() {
     if (!form.phone_number.trim()) newErrors.phone_number = 'Phone number is required';
     if (!form.property_name.trim()) newErrors.property_name = 'Property name is required';
     if (!form.property_location.trim()) newErrors.property_location = 'Location is required';
-    if (!form.property_type) newErrors.property_type = 'Property type is required';
+    if (!form.property_type || form.property_type.length === 0) newErrors.property_type = 'Property type is required';
     if (!form.booking_type) newErrors.booking_type = 'Booking type is required';
     if (!form.package_selected) newErrors.package_selected = 'Please select a package';
 
@@ -104,7 +104,7 @@ export default function UserDashboard() {
       if (!form.phone_number.trim()) missingFields.push('Phone Number');
       if (!form.property_name.trim()) missingFields.push('Property Name');
       if (!form.property_location.trim()) missingFields.push('Location');
-      if (!form.property_type) missingFields.push('Property Type');
+      if (!form.property_type || form.property_type.length === 0) missingFields.push('Property Type');
       if (!form.booking_type) missingFields.push('Booking Type');
       if (!form.package_selected) missingFields.push('Package');
       if (rooms.filter(r => r.room_type && r.price !== '' && r.availability !== '').length === 0)
@@ -120,7 +120,7 @@ export default function UserDashboard() {
       if (result.success) {
         setShowSuccessModal(true);
         setTimeout(() => setShowSuccessModal(false), 3000);
-        setForm({ owner_name: '', phone_number: '', property_name: '', property_location: '', property_type: '', booking_type: '', package_selected: '' });
+        setForm({ owner_name: '', phone_number: '', property_name: '', property_location: '', property_type: [], booking_type: '', package_selected: '' });
         setRooms([]);
         setErrors({});
         loadProperties();
@@ -135,7 +135,7 @@ export default function UserDashboard() {
   };
 
   const handleReset = () => {
-    setForm({ owner_name: '', phone_number: '', property_name: '', property_location: '', property_type: '', booking_type: '', package_selected: '' });
+    setForm({ owner_name: '', phone_number: '', property_name: '', property_location: '', property_type: [], booking_type: '', package_selected: '' });
     setRooms([]);
     setErrors({});
     showNotification('success', 'Form cleared');
@@ -188,11 +188,14 @@ export default function UserDashboard() {
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="user-tabs">
-        <button onClick={() => setTab('add')} className={`user-tab ${tab === 'add' ? 'active' : ''}`}>
-          Add Property
-        </button>
+      {/* Description */}
+      <div className="user-card" style={{ marginBottom: '1.5rem' }}>
+        <h2 className="user-card-title">Submit New Property</h2>
+        <p style={{ color: '#6b7280', lineHeight: '1.6' }}>
+          Use this form to submit a new property listing. Fill in all the required details including owner information, 
+          property location, type, available rooms, booking options, and select a package. 
+          Once submitted, your property will be reviewed by an admin.
+        </p>
       </div>
 
       {/* Form */}
@@ -270,17 +273,25 @@ export default function UserDashboard() {
 
           {/* Property Type */}
           <div className="user-card">
-            <h2 className="user-card-title">Property Type</h2>
+            <h2 className="user-card-title">Property Type <span className="required">*</span></h2>
+            <p style={{ fontSize: '0.85rem', color: '#6b7280', marginBottom: '1rem' }}>Select all that apply</p>
             {errors.property_type && <span className="error-text mb-2">{errors.property_type}</span>}
             <div className="user-rooms-list">
               {PROPERTY_TYPES.map(t => (
                 <label key={t} className="user-room-list-item">
                   <input
-                    type="radio"
+                    type="checkbox"
                     name="property_type"
-                    className="user-room-radio"
-                    checked={form.property_type === t}
-                    onChange={() => setForm({ ...form, property_type: t })}
+                    className="user-room-checkbox"
+                    checked={form.property_type?.includes(t) || false}
+                    onChange={e => {
+                      const current = form.property_type || [];
+                      if (e.target.checked) {
+                        setForm({ ...form, property_type: [...current, t] });
+                      } else {
+                        setForm({ ...form, property_type: current.filter(x => x !== t) });
+                      }
+                    }}
                   />
                   <span className="user-room-label">{t}</span>
                 </label>
@@ -310,12 +321,15 @@ export default function UserDashboard() {
                       <tr key={rt}>
                         <td>
                           <input
-                            type="radio"
-                            name="room_type"
-                            className="user-room-radio"
+                            type="checkbox"
+                            className="user-room-checkbox"
                             checked={isChecked}
                             onChange={() => {
-                              setRooms([{ room_type: rt, price: room?.price || '', availability: room?.availability || '' }]);
+                              if (isChecked) {
+                                setRooms(prev => prev.filter(r => r.room_type !== rt));
+                              } else {
+                                setRooms(prev => [...prev, { room_type: rt, price: '', availability: '' }]);
+                              }
                             }}
                           />
                         </td>

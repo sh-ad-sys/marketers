@@ -12,7 +12,10 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [selectedMarketer, setSelectedMarketer] = useState(null);
-  const [newMarketer, setNewMarketer] = useState({ name: '', email: '', phone: '', password: '' });
+  const [selectedProperty, setSelectedProperty] = useState(null);
+  const [newMarketer, setNewMarketer] = useState({ name: '', email: '', phone: '' });
+  const [successMessage, setSuccessMessage] = useState(null);
+  const [error, setError] = useState('');
 
   const navigate = useNavigate();
 
@@ -32,7 +35,7 @@ export default function AdminDashboard() {
 
       // Set user from localStorage immediately so UI renders
       setUser({
-        name: localStorage.getItem('username') || 'Admin',
+        name: localStorage.getItem('name') || localStorage.getItem('username') || 'Admin',
         user_type: 'admin'
       });
 
@@ -67,15 +70,6 @@ export default function AdminDashboard() {
     return properties.filter(p => p.marketer_id === marketerId);
   };
 
-  const generatePassword = () => {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    let password = '';
-    for (let i = 0; i < 8; i++) {
-      password += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    setNewMarketer({ ...newMarketer, password });
-  };
-
   const handleLogout = async () => {
     localStorage.removeItem('isLoggedIn');
     localStorage.removeItem('role');
@@ -86,23 +80,46 @@ export default function AdminDashboard() {
   };
 
   const handleAddMarketer = async () => {
-    if (!newMarketer.name || !newMarketer.email || !newMarketer.phone || !newMarketer.password) {
-      alert('Please fill in all fields');
+    if (!newMarketer.name || !newMarketer.email || !newMarketer.phone) {
+      setError('Please fill in all fields (name, email, and phone)');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      const result = await api.addMarketer(newMarketer);
+      if (result.success) {
+        setSuccessMessage(result.message || 'Marketer added successfully!');
+        setTimeout(() => setSuccessMessage(null), 3000);
+        setShowModal(false);
+        setNewMarketer({ name: '', email: '', phone: '' });
+        loadData();
+      } else {
+        setError(result.message || 'Failed to add marketer');
+      }
+    } catch (error) {
+      alert('An error occurred');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteMarketer = async (id, name) => {
+    if (!window.confirm(`Are you sure you want to delete ${name}? This action cannot be undone.`)) {
       return;
     }
     setLoading(true);
     try {
-      const result = await api.addMarketer(newMarketer);
+      const result = await api.deleteMarketer(id);
       if (result.success) {
-        alert('Marketer added successfully!');
-        setShowModal(false);
-        setNewMarketer({ name: '', email: '', phone: '', password: '' });
+        setSuccessMessage('Marketer deleted successfully!');
+        setTimeout(() => setSuccessMessage(null), 3000);
         loadData();
       } else {
-        alert(result.message || 'Failed to add marketer');
+        setError(result.message || 'Failed to delete marketer');
       }
     } catch (error) {
-      alert('An error occurred');
+      setError('An error occurred while deleting');
     } finally {
       setLoading(false);
     }
@@ -138,7 +155,8 @@ export default function AdminDashboard() {
           'Property Name': p.property_name,
           Location: p.property_location,
           Marketer: marketer?.name || 'Unknown',
-          Status: p.status
+          Status: p.status,
+          'Date Added': p.created_at ? new Date(p.created_at).toLocaleDateString() : 'N/A'
         };
       });
       exportToExcel(exportData, 'properties');
@@ -147,6 +165,27 @@ export default function AdminDashboard() {
 
   return (
     <div className="user-dashboard">
+      {/* Success Message Toast */}
+      {successMessage && (
+        <div style={{
+          position: 'fixed',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          background: '#10b981',
+          color: 'white',
+          padding: '1.5rem 2.5rem',
+          borderRadius: '12px',
+          fontSize: '1.1rem',
+          fontWeight: '500',
+          boxShadow: '0 10px 25px rgba(0,0,0,0.3)',
+          zIndex: 9999,
+          animation: 'fadeIn 0.3s ease-out'
+        }}>
+          ✓ {successMessage}
+        </div>
+      )}
+
       {/* Header */}
       <div className="user-dashboard-header">
         <div>
@@ -202,6 +241,8 @@ export default function AdminDashboard() {
                 <tr>
                   <th>Name</th>
                   <th>Email</th>
+                  <th>Date Added</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -214,11 +255,28 @@ export default function AdminDashboard() {
                       {m.name}
                     </td>
                     <td>{m.email}</td>
+                    <td>{m.created_at ? new Date(m.created_at).toLocaleString() : 'N/A'}</td>
+                    <td>
+                      <button
+                        onClick={() => handleDeleteMarketer(m.id, m.name)}
+                        style={{
+                          background: '#ef4444',
+                          color: 'white',
+                          border: 'none',
+                          padding: '0.4rem 0.8rem',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          fontSize: '0.8rem'
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </td>
                   </tr>
                 ))}
                 {marketers.length === 0 && (
                   <tr>
-                    <td colSpan="2" style={{ textAlign: 'center', padding: '2rem', color: '#9ca3af' }}>
+                    <td colSpan="4" style={{ textAlign: 'center', padding: '2rem', color: '#9ca3af' }}>
                       No marketers found
                     </td>
                   </tr>
@@ -297,16 +355,18 @@ export default function AdminDashboard() {
                   <th>Property Name</th>
                   <th>Location</th>
                   <th>Marketer</th>
+                  <th>Date Added</th>
                 </tr>
               </thead>
               <tbody>
                 {properties.map(p => {
                   const marketer = marketers.find(m => m.id === p.marketer_id);
                   return (
-                    <tr key={p.id}>
+                    <tr key={p.id} onClick={() => setSelectedProperty(p)} style={{ cursor: 'pointer' }}>
                       <td>{p.property_name}</td>
                       <td>{p.property_location}</td>
                       <td>{marketer?.name || 'Unknown'}</td>
+                      <td>{p.created_at ? new Date(p.created_at).toLocaleDateString() : 'N/A'}</td>
                     </tr>
                   );
                 })}
@@ -328,6 +388,11 @@ export default function AdminDashboard() {
         <div className="user-loading" style={{ background: 'rgba(0,0,0,0.4)' }}>
           <div className="user-card" style={{ maxWidth: '450px', width: '90%' }}>
             <h2 className="user-card-title">Add Marketer</h2>
+            {error && (
+              <div className="user-alert user-alert-error" style={{ marginBottom: '1rem' }}>
+                {error}
+              </div>
+            )}
             <div className="user-form-group">
               <label>Name</label>
               <input
@@ -355,31 +420,12 @@ export default function AdminDashboard() {
                 onChange={e => setNewMarketer({ ...newMarketer, phone: e.target.value })}
               />
             </div>
-            <div className="user-form-group">
-              <label>Password</label>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <input
-                  placeholder="Generate or enter password"
-                  className="input"
-                  value={newMarketer.password}
-                  onChange={e => setNewMarketer({ ...newMarketer, password: e.target.value })}
-                  style={{ flex: 1 }}
-                />
-                <button
-                  type="button"
-                  onClick={generatePassword}
-                  className="btn btn-secondary"
-                  style={{ whiteSpace: 'nowrap' }}
-                >
-                  Generate
-                </button>
-              </div>
-            </div>
             <div className="user-form-actions" style={{ marginTop: '1.5rem' }}>
               <button
                 onClick={() => {
                   setShowModal(false);
-                  setNewMarketer({ name: '', email: '', phone: '', password: '' });
+                  setNewMarketer({ name: '', email: '', phone: '' });
+                  setError('');
                 }}
                 className="btn btn-secondary"
               >
@@ -387,6 +433,82 @@ export default function AdminDashboard() {
               </button>
               <button onClick={handleAddMarketer} className="btn btn-primary">
                 Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Property Details Modal */}
+      {selectedProperty && (
+        <div className="user-loading" style={{ background: 'rgba(0,0,0,0.4)' }}>
+          <div className="user-card" style={{ maxWidth: '500px', width: '90%' }}>
+            <h2 className="user-card-title">Property Details</h2>
+            
+            <div style={{ marginBottom: '1rem' }}>
+              <strong>Property Name:</strong> {selectedProperty.property_name}
+            </div>
+            <div style={{ marginBottom: '1rem' }}>
+              <strong>Location:</strong> {selectedProperty.property_location}
+            </div>
+            <div style={{ marginBottom: '1rem' }}>
+              <strong>Type:</strong> {selectedProperty.property_type || 'N/A'}
+            </div>
+            <div style={{ marginBottom: '1rem' }}>
+              <strong>Status:</strong> {selectedProperty.status}
+            </div>
+            <div style={{ marginBottom: '1rem' }}>
+              <strong>Marketer:</strong> {selectedProperty.marketer_name || 'Unknown'}
+            </div>
+            <div style={{ marginBottom: '1rem' }}>
+              <strong>Date Added:</strong> {selectedProperty.created_at ? new Date(selectedProperty.created_at).toLocaleDateString() : 'N/A'}
+            </div>
+            
+            {selectedProperty.rooms && selectedProperty.rooms.length > 0 && (
+              <div style={{ marginTop: '1rem' }}>
+                <strong>Rooms:</strong>
+                <table style={{ width: '100%', marginTop: '0.5rem', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: 'left', padding: '0.25rem' }}>Room Type</th>
+                      <th style={{ textAlign: 'left', padding: '0.25rem' }}>Price</th>
+                      <th style={{ textAlign: 'left', padding: '0.25rem' }}>Availability</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedProperty.rooms.map((room, idx) => (
+                      <tr key={idx}>
+                        <td style={{ padding: '0.25rem' }}>{room.room_type}</td>
+                        <td style={{ padding: '0.25rem' }}>KSh {room.price}</td>
+                        <td style={{ padding: '0.25rem' }}>{room.availability}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div className="user-form-actions" style={{ marginTop: '1.5rem' }}>
+              <button
+                onClick={() => setSelectedProperty(null)}
+                className="btn btn-secondary"
+              >
+                Close
+              </button>
+              <button
+                onClick={async () => {
+                  const newStatus = selectedProperty.status === 'approved' ? 'rejected' : 'approved';
+                  const result = await api.updatePropertyStatus(selectedProperty.id, newStatus);
+                  if (result.success) {
+                    setSuccessMessage(`Property ${newStatus} successfully!`);
+                    setTimeout(() => setSuccessMessage(null), 3000);
+                  }
+                  setSelectedProperty(null);
+                  loadData();
+                }}
+                className="btn btn-primary"
+              >
+                {selectedProperty.status === 'approved' ? 'Reject' : 'Approve'}
               </button>
             </div>
           </div>
