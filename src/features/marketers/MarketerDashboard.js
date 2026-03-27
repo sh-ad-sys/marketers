@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../services/api';
-import './UserDashboard.css';
+import api from '../../services/api';
+import '../../components/UserDashboard.css';
 
 const PROPERTY_TYPES = ['Rental Rooms', 'Hostel', 'Apartments', 'Lodge / Guest Rooms', 'Short Stay Rooms'];
 const ROOM_TYPES = ['Single Room', 'Bedsitter', '1 Bedroom', 'Standard Lodge Room', 'Executive Room', 'Other'];
@@ -23,7 +23,7 @@ const PACKAGES = [
   { name: 'Premium', price: '15,000', desc: 'Top placement & priority' }
 ];
 
-export default function UserDashboard() {
+export default function MarketerDashboard() {
   const [tab, setTab] = useState('add');
   const [user, setUser] = useState(null);
   // eslint-disable-next-line no-unused-vars
@@ -42,10 +42,84 @@ export default function UserDashboard() {
   const [errors, setErrors] = useState({});
   const [rooms, setRooms] = useState([]);
   const [isAuthorized, setIsAuthorized] = useState(true);
-  const [showMpesaForm, setShowMpesaForm] = useState(false);
-  const [mpesaMessage, setMpesaMessage] = useState('');
+  const [mpesaText, setMpesaText] = useState('');
+  const [mpesaMessages, setMpesaMessages] = useState([]);
+  const [plotsResetActive, setPlotsResetActive] = useState(false);
+  const [mapPins, setMapPins] = useState([]);
+  const [mapLoading, setMapLoading] = useState(false);
+  const [mapError, setMapError] = useState('');
+  const visibleProperties = plotsResetActive ? [] : properties;
+
+  useEffect(() => {
+    const mustChangePassword = localStorage.getItem('mustChangePassword');
+    if (mustChangePassword === '1') {
+      navigate('/plotconnectmarketers/set-password');
+    }
+  }, [navigate]);
 
   useEffect(() => { init(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (tab !== 'map') {
+      return;
+    }
+
+    const geocodeProperties = async () => {
+      if (!visibleProperties.length) {
+        setMapPins([]);
+        return;
+      }
+
+      setMapLoading(true);
+      setMapError('');
+
+      try {
+        const cache = new Map();
+        const pins = [];
+
+        for (const property of visibleProperties) {
+          const area = property.area || property.property_location || '';
+          const county = property.county || '';
+          const query = `${area} ${county} Kenya`.trim();
+          if (!query) {
+            continue;
+          }
+
+          if (!cache.has(query)) {
+            const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`;
+            const response = await fetch(url, {
+              headers: {
+                Accept: 'application/json'
+              }
+            });
+            const data = await response.json();
+            cache.set(query, data?.[0] || null);
+          }
+
+          const location = cache.get(query);
+          if (location?.lat && location?.lon) {
+            pins.push({
+              id: property.id,
+              name: property.property_name,
+              area: area || 'N/A',
+              county: county || 'N/A',
+              status: property.status || 'pending',
+              lat: Number(location.lat),
+              lon: Number(location.lon)
+            });
+          }
+        }
+
+        setMapPins(pins);
+      } catch (err) {
+        setMapError('Unable to geocode property locations for map pins right now.');
+      } finally {
+        setMapLoading(false);
+      }
+    };
+
+    geocodeProperties();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, visibleProperties]);
 
   const init = async () => {
     setLoading(true);
@@ -55,7 +129,7 @@ export default function UserDashboard() {
       const role = localStorage.getItem('role');
 
       if (!isLoggedIn || role !== 'marketer') {
-        navigate('/');
+        navigate('/plotconnectmarketers');
         return;
       }
 
@@ -85,8 +159,9 @@ export default function UserDashboard() {
       }
 
       loadProperties();
+      loadMpesaMessages();
     } catch {
-      navigate('/');
+      navigate('/plotconnectmarketers');
     } finally {
       setLoading(false);
     }
@@ -94,7 +169,15 @@ export default function UserDashboard() {
 
   const loadProperties = async () => {
     const res = await api.getMyProperties();
-    if (res.success) setProperties(res.data);
+    if (res.success) {
+      setPlotsResetActive(!!res.hidden);
+      setProperties(res.data || []);
+    }
+  };
+
+  const loadMpesaMessages = async () => {
+    const res = await api.getMpesaMessages();
+    if (res.success) setMpesaMessages(res.data || []);
   };
 
   const showNotification = (type, message) => {
@@ -259,8 +342,33 @@ export default function UserDashboard() {
     localStorage.removeItem('role');
     localStorage.removeItem('username');
     localStorage.removeItem('name');
+    localStorage.removeItem('mustChangePassword');
     await api.logout();
-    navigate('/');
+    navigate('/plotconnectmarketers');
+  };
+
+  const handleSendMpesaMessage = async (e) => {
+    e.preventDefault();
+    if (!mpesaText.trim()) {
+      showNotification('error', 'Please paste the MPesa transaction message first.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const result = await api.submitMpesaMessage({ message_text: mpesaText.trim() });
+      if (result.success) {
+        showNotification('success', 'MPesa transaction message sent successfully.');
+        setMpesaText('');
+        loadMpesaMessages();
+      } else {
+        showNotification('error', result.message || 'Failed to send MPesa message.');
+      }
+    } catch (error) {
+      showNotification('error', 'Failed to send MPesa message.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -300,39 +408,31 @@ export default function UserDashboard() {
         </div>
         <button onClick={handleLogout} className="btn btn-danger">Logout</button>
       </div>
-
-      {/* Tab Navigation */}
-      <div className="user-tabs">
-        <button 
-          className={`user-tab ${tab === 'add' ? 'active' : ''}`}
-          onClick={() => setTab('add')}
-        >
-          <span style={{ marginRight: '8px' }}>➕</span>
-          Add Property
-        </button>
-        <button 
-          className={`user-tab ${tab === 'properties' ? 'active' : ''}`}
-          onClick={() => setTab('properties')}
-        >
-          <span style={{ marginRight: '8px' }}>🏠</span>
-          My Properties
-        </button>
-        <button 
-          className={`user-tab ${tab === 'map' ? 'active' : ''}`}
-          onClick={() => setTab('map')}
-        >
-          <span style={{ marginRight: '8px' }}>🗺️</span>
-          Map View
-        </button>
-        <button 
-          className={`user-tab ${tab === 'mpesa' ? 'active' : ''}`}
-          onClick={() => setTab('mpesa')}
-        >
-          <span style={{ marginRight: '8px' }}>💰</span>
-          MPesa
-        </button>
+      {/* Modules - Admin-style cards */}
+      <div className="user-form-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: '1.5rem' }}>
+        {[
+          { label: 'Add Property', value: '-', tabKey: 'add' },
+          { label: 'My Properties', value: visibleProperties.length, tabKey: 'properties' },
+          { label: 'Map', value: visibleProperties.length, tabKey: 'map' },
+          { label: 'MPesa Messages', value: mpesaMessages.length, tabKey: 'mpesa' }
+        ].map((module, i) => (
+          <div
+            key={i}
+            className="user-card"
+            style={{
+              padding: '1.25rem',
+              textAlign: 'center',
+              cursor: 'pointer',
+              border: tab === module.tabKey ? '2px solid #6366f1' : '1px solid rgba(229, 231, 235, 0.7)',
+              background: tab === module.tabKey ? 'linear-gradient(160deg, #eef2ff 0%, #faf5ff 100%)' : 'rgba(255, 255, 255, 0.95)'
+            }}
+            onClick={() => setTab(module.tabKey)}
+          >
+            <p className="user-card-title" style={{ margin: 0, fontSize: '0.85rem' }}>{module.label}</p>
+            <h2 style={{ margin: '0.5rem 0 0', fontSize: '1.75rem', fontWeight: '700', color: '#4f46e5' }}>{module.value}</h2>
+          </div>
+        ))}
       </div>
-
       {/* Loading Overlay */}
       {loading && (
         <div className="user-loading">
@@ -589,8 +689,13 @@ export default function UserDashboard() {
               View all the properties you have submitted. You can see their current status and details.
             </p>
           </div>
+          {plotsResetActive && (
+            <div className="user-alert user-alert-success" style={{ marginBottom: '1rem' }}>
+              User view plots were refreshed by admin and are currently reset to 0.
+            </div>
+          )}
 
-          {properties.length === 0 ? (
+          {visibleProperties.length === 0 ? (
             <div className="user-card" style={{ textAlign: 'center', padding: '3rem' }}>
               <div style={{ fontSize: '4rem', marginBottom: '1rem', color: '#9ca3af' }}>🏠</div>
               <h3 style={{ marginBottom: '0.5rem', color: '#4b5563' }}>No Properties Yet</h3>
@@ -601,7 +706,7 @@ export default function UserDashboard() {
             </div>
           ) : (
             <div className="user-properties-grid">
-              {properties.map(property => (
+              {visibleProperties.map(property => (
                 <div key={property.id} className="user-property-card">
                   <div className="user-property-header">
                     <h3 className="user-property-name">{property.property_name}</h3>
@@ -635,6 +740,12 @@ export default function UserDashboard() {
                       <span className="detail-label">Type:</span>
                       <span className="detail-value">{property.property_type}</span>
                     </div>
+                    <div className="user-property-detail">
+                      <span className="detail-label">Date Added:</span>
+                      <span className="detail-value">
+                        {property.created_at ? new Date(property.created_at).toLocaleDateString() : 'N/A'}
+                      </span>
+                    </div>
                   </div>
 
                   {property.rooms && property.rooms.length > 0 && (
@@ -652,7 +763,7 @@ export default function UserDashboard() {
 
                   <div className="user-property-footer">
                     <span className="user-property-date">
-                      Added: {new Date(property.created_at).toLocaleDateString()}
+                      Added: {property.created_at ? new Date(property.created_at).toLocaleDateString() : 'N/A'}
                     </span>
                   </div>
                 </div>
@@ -661,6 +772,159 @@ export default function UserDashboard() {
           )}
         </div>
       )}
+
+      {/* Map Section */}
+      {tab === 'map' && (
+        <div className="user-card">
+          <h2 className="user-card-title">Property Map</h2>
+          {visibleProperties.length === 0 ? (
+            <p style={{ textAlign: 'center', color: '#6b7280' }}>
+              No visible properties to show on map.
+            </p>
+          ) : (
+            <>
+              <p style={{ color: '#6b7280', marginBottom: '1rem' }}>
+                Showing your visible properties by county and area.
+              </p>
+              {mapLoading && (
+                <div className="user-alert user-alert-success" style={{ marginBottom: '1rem' }}>
+                  Loading map pins...
+                </div>
+              )}
+              {mapError && (
+                <div className="user-alert user-alert-error" style={{ marginBottom: '1rem' }}>
+                  {mapError}
+                </div>
+              )}
+              <div className="user-rooms-table-wrapper" style={{ marginBottom: '1rem' }}>
+                <table className="user-rooms-table">
+                  <thead>
+                    <tr>
+                      <th>Property</th>
+                      <th>County</th>
+                      <th>Area</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleProperties.map((property) => (
+                      <tr key={property.id}>
+                        <td>{property.property_name}</td>
+                        <td>{property.county || 'N/A'}</td>
+                        <td>{property.area || 'N/A'}</td>
+                        <td>{property.status || 'pending'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {mapPins.length > 0 ? (
+                <iframe
+                  title="Properties map with pins"
+                  style={{ width: '100%', height: '460px', border: '1px solid #e5e7eb', borderRadius: '12px' }}
+                  srcDoc={`<!doctype html>
+                  <html>
+                    <head>
+                      <meta charset="utf-8" />
+                      <meta name="viewport" content="width=device-width, initial-scale=1" />
+                      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+                      <style>html,body,#map{height:100%;margin:0;padding:0}</style>
+                    </head>
+                    <body>
+                      <div id="map"></div>
+                      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+                      <script>
+                        const pins = ${JSON.stringify(mapPins)};
+                        const kenyaBounds = [[-4.9, 33.8], [5.1, 42.0]];
+                        const map = L.map('map', { maxBounds: kenyaBounds, maxBoundsViscosity: 1.0 });
+                        map.fitBounds(kenyaBounds);
+                        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                          attribution: '&copy; OpenStreetMap contributors'
+                        }).addTo(map);
+                        const bounds = [];
+                        pins.forEach((p) => {
+                          const marker = L.marker([p.lat, p.lon]).addTo(map);
+                          marker.bindPopup('<b>' + p.name + '</b><br/>' + p.area + ', ' + p.county + '<br/>Status: ' + p.status);
+                          bounds.push([p.lat, p.lon]);
+                        });
+                        if (bounds.length > 0) map.fitBounds(bounds, { padding: [24, 24], maxZoom: 12 });
+                      </script>
+                    </body>
+                  </html>`}
+                />
+              ) : (
+                <div className="user-alert user-alert-error">
+                  No pin coordinates found yet for the listed property areas.
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* MPesa Module */}
+      {tab === 'mpesa' && (
+        <div className="user-card">
+          <h2 className="user-card-title">MPesa Transaction Message</h2>
+          <p style={{ color: '#6b7280', marginBottom: '1rem' }}>
+            Paste MPesa transaction message from the property owner or client, then send it to admin.
+          </p>
+          <form onSubmit={handleSendMpesaMessage}>
+            <div className="user-form-group">
+              <label>MPesa Message</label>
+              <textarea
+                className="input"
+                rows={5}
+                value={mpesaText}
+                onChange={(e) => setMpesaText(e.target.value)}
+                placeholder="Paste MPesa message here"
+                required
+              />
+            </div>
+            <button type="submit" className="btn btn-primary" disabled={loading}>
+              {loading ? 'Sending...' : 'Send Message'}
+            </button>
+          </form>
+
+          <div style={{ marginTop: '1.5rem' }}>
+            <h3 className="user-card-title">My Sent MPesa Messages</h3>
+            <div className="user-rooms-table-wrapper">
+              <table className="user-rooms-table">
+                <thead>
+                  <tr>
+                    <th>Message</th>
+                    <th>Status</th>
+                    <th>Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mpesaMessages.map((msg) => (
+                    <tr key={msg.id}>
+                      <td>{msg.message_text}</td>
+                      <td>{msg.status || 'pending'}</td>
+                      <td>{msg.created_at ? new Date(msg.created_at).toLocaleString() : 'N/A'}</td>
+                    </tr>
+                  ))}
+                  {mpesaMessages.length === 0 && (
+                    <tr>
+                      <td colSpan="3" style={{ textAlign: 'center', padding: '1rem', color: '#9ca3af' }}>
+                        No MPesa messages sent yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+
+
+
+
+
+

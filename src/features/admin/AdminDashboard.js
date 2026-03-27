@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../services/api';
-import './UserDashboard.css';
+import api from '../../services/api';
+import '../../components/UserDashboard.css';
 
 export default function AdminDashboard() {
   const [tab, setTab] = useState('marketers');
@@ -14,8 +14,10 @@ export default function AdminDashboard() {
   const [showModal, setShowModal] = useState(false);
   const [selectedMarketer, setSelectedMarketer] = useState(null);
   const [selectedProperty, setSelectedProperty] = useState(null);
-  const [newMarketer, setNewMarketer] = useState({ name: '', email: '', phone: '' });
+  const [newMarketer, setNewMarketer] = useState({ name: '', email: '', phone: '', password: '' });
   const [successMessage, setSuccessMessage] = useState(null);
+  const [temporaryPassword, setTemporaryPassword] = useState('');
+  const [copiedTempPassword, setCopiedTempPassword] = useState(false);
   const [error, setError] = useState('');
 
   const navigate = useNavigate();
@@ -32,6 +34,13 @@ export default function AdminDashboard() {
   }, [tab, marketers]);
 
   useEffect(() => { init(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!successMessage || !successMessage.includes('Temporary password:')) {
+      setTemporaryPassword('');
+      setCopiedTempPassword(false);
+    }
+  }, [successMessage]);
 
   const init = async () => {
     setLoading(true);
@@ -94,6 +103,15 @@ export default function AdminDashboard() {
     return properties.filter(p => p.marketer_id === marketerId);
   };
 
+  const updateMarketerState = (id, changes) => {
+    setMarketers(prev =>
+      prev.map(m => (m.id === id ? { ...m, ...changes } : m))
+    );
+    setSelectedMarketer(prev =>
+      prev && prev.id === id ? { ...prev, ...changes } : prev
+    );
+  };
+
   const handleLogout = async () => {
     localStorage.removeItem('isLoggedIn');
     localStorage.removeItem('role');
@@ -101,6 +119,39 @@ export default function AdminDashboard() {
     localStorage.removeItem('name');
     await api.logout();
     navigate('/');
+  };
+
+  const handleCopyTemporaryPassword = async () => {
+    if (!temporaryPassword) return;
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(temporaryPassword);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = temporaryPassword;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+      setCopiedTempPassword(true);
+    } catch (copyError) {
+      setError('Failed to copy temporary password. Please copy it manually.');
+    }
+  };
+
+  const generatePassword = (length = 10) => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+    let password = '';
+    for (let i = 0; i < length; i += 1) {
+      password += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return password;
+  };
+
+  const handleGeneratePassword = () => {
+    setNewMarketer(prev => ({ ...prev, password: generatePassword(10) }));
   };
 
   const handleAddMarketer = async () => {
@@ -113,10 +164,16 @@ export default function AdminDashboard() {
     try {
       const result = await api.addMarketer(newMarketer);
       if (result.success) {
-        setSuccessMessage(result.message || 'Marketer added successfully!');
+        const generatedPassword = result.data?.temporary_password || '';
+        const successText = generatedPassword
+          ? `${result.message || 'Marketer added successfully!'} Temporary password: ${generatedPassword}`
+          : (result.message || 'Marketer added successfully!');
+        setTemporaryPassword(generatedPassword);
+        setCopiedTempPassword(false);
+        setSuccessMessage(successText);
         setTimeout(() => setSuccessMessage(null), 3000);
         setShowModal(false);
-        setNewMarketer({ name: '', email: '', phone: '' });
+        setNewMarketer({ name: '', email: '', phone: '', password: '' });
         loadData();
       } else {
         setError(result.message || 'Failed to add marketer');
@@ -136,6 +193,8 @@ export default function AdminDashboard() {
     try {
       const result = await api.deleteMarketer(id);
       if (result.success) {
+        setMarketers(prev => prev.filter(m => m.id !== id));
+        setSelectedMarketer(prev => (prev && prev.id === id ? null : prev));
         setSuccessMessage('Marketer deleted successfully!');
         setTimeout(() => setSuccessMessage(null), 3000);
         loadData();
@@ -154,6 +213,7 @@ export default function AdminDashboard() {
     try {
       const result = await api.authorizeMarketer(id);
       if (result.success) {
+        updateMarketerState(id, { is_authorized: 1, is_blocked: 0 });
         setSuccessMessage('Marketer authorized successfully!');
         setTimeout(() => setSuccessMessage(null), 3000);
         loadData();
@@ -172,6 +232,7 @@ export default function AdminDashboard() {
     try {
       const result = await api.rejectMarketer(id);
       if (result.success) {
+        updateMarketerState(id, { is_authorized: 0 });
         setSuccessMessage('Marketer rejected successfully!');
         setTimeout(() => setSuccessMessage(null), 3000);
         loadData();
@@ -190,6 +251,7 @@ export default function AdminDashboard() {
     try {
       const result = await api.blockMarketer(id);
       if (result.success) {
+        updateMarketerState(id, { is_blocked: 1, is_authorized: 0 });
         setSuccessMessage('Marketer blocked successfully!');
         setTimeout(() => setSuccessMessage(null), 3000);
         loadData();
@@ -208,6 +270,7 @@ export default function AdminDashboard() {
     try {
       const result = await api.unblockMarketer(id);
       if (result.success) {
+        updateMarketerState(id, { is_blocked: 0 });
         setSuccessMessage('Marketer unblocked successfully!');
         setTimeout(() => setSuccessMessage(null), 3000);
         loadData();
@@ -290,6 +353,21 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleRefreshUserPlots = () => {
+    setLoading(true);
+    api.refreshUserPlots()
+      .then((result) => {
+        if (result.success) {
+          setSuccessMessage('User UI properties refreshed to 0. Admin UI remains unchanged.');
+          setTimeout(() => setSuccessMessage(null), 3000);
+        } else {
+          setError(result.message || 'Failed to refresh user properties');
+        }
+      })
+      .catch(() => setError('Failed to refresh user properties'))
+      .finally(() => setLoading(false));
+  };
+
   return (
     <div className="user-dashboard">
       {/* Success Message Toast */}
@@ -309,7 +387,19 @@ export default function AdminDashboard() {
           zIndex: 9999,
           animation: 'fadeIn 0.3s ease-out'
         }}>
-          ✓ {successMessage}
+          <div>Success: {successMessage}</div>
+          {!!temporaryPassword && (
+            <div style={{ marginTop: '0.85rem', textAlign: 'center' }}>
+              <button
+                type="button"
+                onClick={handleCopyTemporaryPassword}
+                className="btn btn-secondary"
+                style={{ background: 'white', color: '#065f46', border: 'none' }}
+              >
+                {copiedTempPassword ? 'Copied' : 'Copy Temporary Password'}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -322,6 +412,7 @@ export default function AdminDashboard() {
         </div>
         <div style={{ display: 'flex', gap: '0.75rem' }}>
           <button onClick={() => setShowModal(true)} className="btn btn-primary">+ Add Marketer</button>
+          <button onClick={handleRefreshUserPlots} className="btn btn-secondary">Refresh User Plots</button>
           <button onClick={handleDownload} className="btn btn-secondary">Download Excel</button>
           <button onClick={handleLogout} className="btn btn-danger">Logout</button>
         </div>
@@ -661,11 +752,30 @@ export default function AdminDashboard() {
                 onChange={e => setNewMarketer({ ...newMarketer, phone: e.target.value })}
               />
             </div>
+            <div className="user-form-group">
+              <label>Temporary Password</label>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <input
+                  placeholder="Generate or type temporary password"
+                  className="input"
+                  value={newMarketer.password}
+                  onChange={e => setNewMarketer({ ...newMarketer, password: e.target.value })}
+                />
+                <button
+                  type="button"
+                  onClick={handleGeneratePassword}
+                  className="btn btn-secondary"
+                  style={{ whiteSpace: 'nowrap' }}
+                >
+                  Generate
+                </button>
+              </div>
+            </div>
             <div className="user-form-actions" style={{ marginTop: '1.5rem' }}>
               <button
                 onClick={() => {
                   setShowModal(false);
-                  setNewMarketer({ name: '', email: '', phone: '' });
+                  setNewMarketer({ name: '', email: '', phone: '', password: '' });
                   setError('');
                 }}
                 className="btn btn-secondary"
@@ -758,3 +868,5 @@ export default function AdminDashboard() {
     </div>
   );
 }
+
+

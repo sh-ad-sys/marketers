@@ -1,55 +1,36 @@
-import React, { useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, useNavigate } from 'react-router-dom';
+import React from 'react';
+import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-dom';
 
-import Login from './components/Login';
-import UserDashboard from './components/UserDashboard';
-import AdminDashboard from './components/AdminDashboard';
-
-function ProtectedRoute({ children, role }) {
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    const isLoggedIn = localStorage.getItem('isLoggedIn');
-    const storedRole = localStorage.getItem('role');
-
-    if (!isLoggedIn) {
-      navigate('/login');
-      return;
-    }
-
-    if (role && role !== storedRole) {
-      navigate('/login');
-    }
-  }, [navigate, role]);
-
-  return children;
-}
+import './App.css';
+import ProtectedRoute from './features/shared/ProtectedRoute';
+import AdminLogin from './features/admin/AdminLogin';
+import AdminDashboard from './features/admin/AdminDashboard';
 
 function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/login" element={<Login />} />
-
-        <Route
-          path="/dashboard"
-          element={
-            <ProtectedRoute role="marketer">
-              <UserDashboard />
-            </ProtectedRoute>
-          }
-        />
-
+        <Route path="/" element={<AdminLogin />} />
+        <Route path="/plotconnect" element={<Navigate to="/" replace />} />
         <Route
           path="/admin"
           element={
-            <ProtectedRoute role="admin">
+            <ProtectedRoute role="admin" redirectTo="/">
               <AdminDashboard />
             </ProtectedRoute>
           }
         />
+        <Route path="/plotconnect/admin" element={<Navigate to="/admin" replace />} />
 
-        <Route path="/" element={<Login />} />
+        <Route path="/login" element={<Navigate to="/" replace />} />
+        <Route path="/admin-login" element={<Navigate to="/" replace />} />
+        <Route path="/user-login" element={<Navigate to="/" replace />} />
+        <Route path="/dashboard" element={<Navigate to="/admin" replace />} />
+        <Route path="/plotconnectmarketers" element={<Navigate to="/" replace />} />
+        <Route path="/plotconnectmarketers/dashboard" element={<Navigate to="/" replace />} />
+        <Route path="/plotconnectmarketers/set-password" element={<Navigate to="/" replace />} />
+
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>
   );

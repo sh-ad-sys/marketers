@@ -3,6 +3,6 @@
     { "source": "/(.*)", "destination": "/" }
   ],
   "env": {
-    "REACT_APP_API_URL": "https://your-backend-domain.com/plotconnect/api"
+    "REACT_APP_API_BASE_URL": "https://marketers-backend.onrender.com"
   }
 }
