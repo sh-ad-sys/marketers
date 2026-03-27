@@ -3,8 +3,27 @@ import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import '../../components/UserDashboard.css';
 
+function EyeOpenIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M1.5 12C3.5 7.5 7.4 4.5 12 4.5C16.6 4.5 20.5 7.5 22.5 12C20.5 16.5 16.6 19.5 12 19.5C7.4 19.5 3.5 16.5 1.5 12Z" stroke="currentColor" strokeWidth="1.8" />
+      <circle cx="12" cy="12" r="3.2" stroke="currentColor" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function EyeClosedIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M3 3L21 21" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M10.6 5.1C11.1 5 11.5 5 12 5C16.6 5 20.5 8 22.5 12C21.8 13.5 20.8 14.8 19.6 15.9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M14.1 14.1C13.5 14.7 12.8 15 12 15C10.3 15 9 13.7 9 12C9 11.2 9.3 10.5 9.9 9.9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M6.2 6.2C4.2 7.5 2.6 9.5 1.5 12C3.5 16.5 7.4 19.5 12 19.5C13.8 19.5 15.5 19 17 18.1" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export default function AdminLogin() {
-  const marketerAppUrl = (process.env.REACT_APP_USER_APP_URL || 'http://localhost:3000').trim();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -94,7 +113,7 @@ export default function AdminLogin() {
                   cursor: 'pointer',
                 }}
               >
-                {showPassword ? 'Hide' : 'Show'}
+                {showPassword ? <EyeClosedIcon /> : <EyeOpenIcon />}
               </button>
             </div>
           </div>
@@ -103,14 +122,12 @@ export default function AdminLogin() {
             {loading ? 'Logging in...' : 'Login'}
           </button>
         </form>
-
-        <div style={{ marginTop: '1rem', textAlign: 'center' }}>
-          <a href={marketerAppUrl} style={{ color: '#4f46e5', textDecoration: 'none', fontWeight: 600 }}>
-            Marketer login
+        <div style={{ marginTop: '0.85rem', textAlign: 'right' }}>
+          <a href="/forgot-password" style={{ color: '#4f46e5', textDecoration: 'none', fontWeight: 600 }}>
+            Forgot password?
           </a>
         </div>
       </div>
     </div>
   );
 }
-

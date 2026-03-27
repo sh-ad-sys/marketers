@@ -181,6 +181,16 @@ const api = {
       method: 'POST',
       body: { current_password: currentPassword, new_password: newPassword },
     }),
+  requestPasswordReset: (type, email) =>
+    fetchAPI('/api/auth/request-password-reset.php', {
+      method: 'POST',
+      body: { type, email },
+    }),
+  resetPassword: (type, email, token, newPassword) =>
+    fetchAPI('/api/auth/reset-password.php', {
+      method: 'POST',
+      body: { type, email, token, new_password: newPassword },
+    }),
 };
 
 export default api;
