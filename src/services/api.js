@@ -109,12 +109,28 @@ const api = {
       body: data,
     }),
   getMyProperties: () => fetchAPI('/api/marketer/my-properties.php'),
+  initiatePropertyPayment: (propertyId, phone) =>
+    fetchAPI('/api/marketer/property-payments.php', {
+      method: 'POST',
+      body: { property_id: propertyId, phone },
+    }),
+  syncPropertyPaymentStatus: (propertyId) =>
+    fetchAPI('/api/marketer/property-payment-status.php', {
+      method: 'POST',
+      body: { property_id: propertyId },
+    }),
   deleteProperty: (id) =>
     fetchAPI('/api/marketer/delete-property.php', {
       method: 'POST',
       body: { id },
     }),
   getAdminStats: () => fetchAPI('/api/admin/dashboard.php'),
+  getAdmins: () => fetchAPI('/api/admin/admins.php'),
+  addAdmin: (data) =>
+    fetchAPI('/api/admin/admins.php', {
+      method: 'POST',
+      body: data,
+    }),
   getMarketers: () => fetchAPI('/api/admin/marketers.php'),
   addMarketer: (data) =>
     fetchAPI('/api/admin/marketers.php', {
@@ -147,6 +163,12 @@ const api = {
       body: { id, action: 'unblock' },
     }),
   getAllProperties: () => fetchAPI('/api/admin/properties.php'),
+  getLedger: () => fetchAPI('/api/admin/ledger.php'),
+  refreshLedgerWeekly: () =>
+    fetchAPI('/api/admin/ledger.php', {
+      method: 'POST',
+      body: { action: 'refresh_weekly' },
+    }),
   updatePropertyStatus: (id, status) =>
     fetchAPI('/api/admin/properties.php', {
       method: 'POST',

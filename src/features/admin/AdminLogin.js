@@ -25,7 +25,7 @@ function EyeClosedIcon() {
 
 export default function AdminLogin() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState('techswifttrix361@gmail.com');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -37,7 +37,7 @@ export default function AdminLogin() {
     setError('');
 
     try {
-      const result = await api.login('admin', { email: email.trim(), password });
+      const result = await api.login('admin', { email: email.trim(), password, portal: 'admin' });
 
       if (!result.success) {
         setError(result.message || 'Invalid admin credentials.');
@@ -46,10 +46,10 @@ export default function AdminLogin() {
 
       localStorage.setItem('isLoggedIn', 'true');
       localStorage.setItem('role', 'admin');
-      localStorage.setItem('username', result.data?.email || result.username || email.trim());
-      localStorage.setItem('name', result.data?.name || 'Admin');
-      if (result.token) {
-        localStorage.setItem('token', result.token);
+      localStorage.setItem('username', result.data?.username || result.data?.email || result.username || email.trim());
+      localStorage.setItem('name', result.data?.full_name || result.data?.name || result.data?.username || 'Admin');
+      if (result.data?.token || result.token) {
+        localStorage.setItem('token', result.data?.token || result.token);
       }
 
       navigate('/admin');
@@ -65,7 +65,7 @@ export default function AdminLogin() {
       <div className="user-dashboard-header" style={{ justifyContent: 'center' }}>
         <div style={{ textAlign: 'center' }}>
           <h1>PlotConnect</h1>
-          <p className="user-subtitle">Admin login</p>
+          <p className="user-subtitle">Primary admin control room</p>
         </div>
       </div>
 
@@ -82,7 +82,7 @@ export default function AdminLogin() {
               className="input"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="Enter admin email"
+              placeholder="techswifttrix361@gmail.com"
               required
             />
           </div>

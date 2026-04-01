@@ -11,9 +11,11 @@ export default function AdminDashboard() {
   const [properties, setProperties] = useState([]);
   const [mpesaMessages, setMpesaMessages] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [hasLoadedData, setHasLoadedData] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [selectedMarketer, setSelectedMarketer] = useState(null);
   const [selectedProperty, setSelectedProperty] = useState(null);
+  const [selectedMpesaMessage, setSelectedMpesaMessage] = useState(null);
   const [newMarketer, setNewMarketer] = useState({ name: '', email: '', phone: '', password: '' });
   const [successMessage, setSuccessMessage] = useState(null);
   const [temporaryPassword, setTemporaryPassword] = useState('');
@@ -70,7 +72,7 @@ export default function AdminDashboard() {
         // Session may not persist cross-origin — that's OK, localStorage handles auth
       }
 
-      loadData();
+      await loadData();
     } catch {
       navigate('/');
     } finally {
@@ -81,26 +83,149 @@ export default function AdminDashboard() {
   const loadData = async () => {
     console.log('=== loadData called ===');
     try {
-      const s = await api.getAdminStats();
+      const [s, m, p, mp] = await Promise.all([
+        api.getAdminStats(),
+        api.getMarketers(),
+        api.getAllProperties(),
+        api.getAdminMpesaMessages(),
+      ]);
       console.log('Stats:', s);
-      const m = await api.getMarketers();
       console.log('Marketers:', m);
-      const p = await api.getAllProperties();
-      const mp = await api.getAdminMpesaMessages();
-      
-      setStats(s.data || {});
-      setMarketers(m.data || []);
-      setProperties(p.data || []);
-      setMpesaMessages(mp.data || []);
-      
+
+      const failures = [];
+
+      if (s.success) {
+        setStats(s.data || {});
+      } else {
+        failures.push(s.message || 'Unable to load dashboard stats.');
+      }
+
+      if (m.success) {
+        setMarketers(m.data || []);
+      } else {
+        failures.push(m.message || 'Unable to load marketers.');
+      }
+
+      if (p.success) {
+        setProperties(p.data || []);
+      } else {
+        failures.push(p.message || 'Unable to load properties.');
+      }
+
+      if (mp.success) {
+        setMpesaMessages(mp.data || []);
+      } else {
+        failures.push(mp.message || 'Unable to load MPesa messages.');
+      }
+
+      setError(failures[0] || '');
+
       console.log('Data loaded - marketers:', m.data);
     } catch (err) {
       console.error('Error in loadData:', err);
+      setError('Unable to refresh dashboard data right now.');
+    } finally {
+      setHasLoadedData(true);
     }
   };
 
   const getPropertiesByMarketer = (marketerId) => {
-    return properties.filter(p => p.marketer_id === marketerId);
+    const normalizedMarketerId = Number(marketerId);
+    return properties.filter(p => Number(p.marketer_id) === normalizedMarketerId);
+  };
+
+  const isPropertyApproved = (status) => String(status ?? '').toLowerCase() === 'approved';
+
+  const getPropertyApprovalLabel = (status) => (
+    isPropertyApproved(status) ? 'Approved' : 'Not Approved'
+  );
+
+  const getPropertyApprovalClassName = (status) => (
+    `user-property-status ${isPropertyApproved(status) ? 'status-approved' : 'status-rejected'}`
+  );
+
+  const getPaymentStatusLabel = (status) => {
+    const normalizedStatus = String(status || 'unpaid').trim().toLowerCase();
+
+    if (normalizedStatus === 'completed') {
+      return 'Paid';
+    }
+    if (normalizedStatus === 'initiated') {
+      return 'Awaiting Confirmation';
+    }
+    if (normalizedStatus === 'failed') {
+      return 'Failed';
+    }
+
+    return 'Unpaid';
+  };
+
+  const getMessagePreview = (message) => {
+    const text = String(message || '').trim();
+    if (!text) {
+      return 'No message text';
+    }
+
+    return text.length > 110 ? `${text.slice(0, 110)}...` : text;
+  };
+
+  const getReadableStatus = (status) => {
+    const text = String(status || '').trim().replace(/[_-]+/g, ' ');
+    if (!text) {
+      return 'Pending';
+    }
+
+    return text.replace(/\b\w/g, (char) => char.toUpperCase());
+  };
+
+  const getCurrencyLabel = (amount) => {
+    const numericAmount = Number(amount);
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+      return 'N/A';
+    }
+
+    return `KSh ${numericAmount.toLocaleString()}`;
+  };
+
+  const getPropertyImageSrc = (image) => {
+    if (typeof image === 'string') {
+      return image;
+    }
+
+    if (image && typeof image === 'object') {
+      return image.data_url || image.url || image.src || '';
+    }
+
+    return '';
+  };
+
+  const normalizePhoneForCall = (phone) => String(phone || '').trim().replace(/[^\d+]/g, '');
+
+  const getPropertyCallTargets = (property) => {
+    const candidates = [
+      { key: 'primary', label: 'Call Owner', phone: property?.phone_number_1 || property?.phone || '' },
+      { key: 'alternate', label: 'Call Alt', phone: property?.phone_number_2 || '' },
+      { key: 'whatsapp', label: 'Call WhatsApp', phone: property?.whatsapp_phone || '' },
+    ];
+
+    const seen = new Set();
+
+    return candidates.reduce((targets, candidate) => {
+      const rawPhone = String(candidate.phone || '').trim();
+      const dialablePhone = normalizePhoneForCall(rawPhone);
+
+      if (!dialablePhone || seen.has(dialablePhone)) {
+        return targets;
+      }
+
+      seen.add(dialablePhone);
+      targets.push({
+        ...candidate,
+        phone: rawPhone,
+        href: `tel:${dialablePhone}`,
+      });
+      return targets;
+    }, []);
   };
 
   const updateMarketerState = (id, changes) => {
@@ -111,6 +236,8 @@ export default function AdminDashboard() {
       prev && prev.id === id ? { ...prev, ...changes } : prev
     );
   };
+
+  const selectedPropertyCallTargets = getPropertyCallTargets(selectedProperty);
 
   const handleLogout = async () => {
     localStorage.removeItem('isLoggedIn');
@@ -174,7 +301,7 @@ export default function AdminDashboard() {
         setTimeout(() => setSuccessMessage(null), 3000);
         setShowModal(false);
         setNewMarketer({ name: '', email: '', phone: '', password: '' });
-        loadData();
+        await loadData();
       } else {
         setError(result.message || 'Failed to add marketer');
       }
@@ -197,7 +324,7 @@ export default function AdminDashboard() {
         setSelectedMarketer(prev => (prev && prev.id === id ? null : prev));
         setSuccessMessage('Marketer deleted successfully!');
         setTimeout(() => setSuccessMessage(null), 3000);
-        loadData();
+        await loadData();
       } else {
         setError(result.message || 'Failed to delete marketer');
       }
@@ -216,7 +343,7 @@ export default function AdminDashboard() {
         updateMarketerState(id, { is_authorized: 1, is_blocked: 0 });
         setSuccessMessage('Marketer authorized successfully!');
         setTimeout(() => setSuccessMessage(null), 3000);
-        loadData();
+        await loadData();
       } else {
         setError(result.message || 'Failed to authorize marketer');
       }
@@ -235,7 +362,7 @@ export default function AdminDashboard() {
         updateMarketerState(id, { is_authorized: 0 });
         setSuccessMessage('Marketer rejected successfully!');
         setTimeout(() => setSuccessMessage(null), 3000);
-        loadData();
+        await loadData();
       } else {
         setError(result.message || 'Failed to reject marketer');
       }
@@ -254,7 +381,7 @@ export default function AdminDashboard() {
         updateMarketerState(id, { is_blocked: 1, is_authorized: 0 });
         setSuccessMessage('Marketer blocked successfully!');
         setTimeout(() => setSuccessMessage(null), 3000);
-        loadData();
+        await loadData();
       } else {
         setError(result.message || 'Failed to block marketer');
       }
@@ -273,7 +400,7 @@ export default function AdminDashboard() {
         updateMarketerState(id, { is_blocked: 0 });
         setSuccessMessage('Marketer unblocked successfully!');
         setTimeout(() => setSuccessMessage(null), 3000);
-        loadData();
+        await loadData();
       } else {
         setError(result.message || 'Failed to unblock marketer');
       }
@@ -284,28 +411,8 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleMpesaMessageAction = async (messageId, action) => {
-    if (action === 'delete') {
-      if (!window.confirm('Are you sure you want to delete this message?')) {
-        return;
-      }
-    }
-    setLoading(true);
-    try {
-      const result = await api.updateMpesaMessage(messageId, action);
-      if (result.success) {
-        setSuccessMessage(result.message);
-        setTimeout(() => setSuccessMessage(null), 3000);
-        loadData();
-      } else {
-        setError(result.message || `Failed to ${action} message`);
-      }
-    } catch (error) {
-      setError(`An error occurred while ${action}ing the message`);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const showBlockingLoader = loading && !hasLoadedData;
+  const showRefreshIndicator = loading && hasLoadedData;
 
   const exportToExcel = (data, filename) => {
     const headers = Object.keys(data[0] || {});
@@ -338,7 +445,7 @@ export default function AdminDashboard() {
           'Property Name': p.property_name,
           Location: p.property_location,
           Marketer: marketer?.name || 'Unknown',
-          Status: p.status,
+          Status: getPropertyApprovalLabel(p.status),
           'Date Added': p.created_at ? new Date(p.created_at).toLocaleDateString() : 'N/A'
         };
       });
@@ -353,23 +460,34 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleRefreshUserPlots = () => {
+  const handleRefreshUserPlots = async () => {
     setLoading(true);
-    api.refreshUserPlots()
-      .then((result) => {
-        if (result.success) {
-          setSuccessMessage('User UI properties refreshed to 0. Admin UI remains unchanged.');
-          setTimeout(() => setSuccessMessage(null), 3000);
-        } else {
-          setError(result.message || 'Failed to refresh user properties');
-        }
-      })
-      .catch(() => setError('Failed to refresh user properties'))
-      .finally(() => setLoading(false));
+    setError('');
+
+    try {
+      const result = await api.refreshUserPlots();
+      if (result.success) {
+        await loadData();
+        setSuccessMessage('Dashboard refreshed successfully.');
+        setTimeout(() => setSuccessMessage(null), 3000);
+      } else {
+        setError(result.message || 'Failed to refresh dashboard data');
+      }
+    } catch (refreshError) {
+      setError('Failed to refresh dashboard data');
+    } finally {
+      setLoading(false);
+    }
   };
 
+  const statCards = [
+    { label: 'Marketers', value: stats.total_marketers, tab: 'marketers', note: 'Agent accounts in the workspace' },
+    { label: 'Properties', value: stats.total_properties, tab: 'properties', note: 'Listings currently under review' },
+    { label: 'MPesa Messages', value: mpesaMessages.length, tab: 'mpesa', note: 'Incoming payment messages to review' },
+  ];
+
   return (
-    <div className="user-dashboard">
+    <div className="user-dashboard admin-shell">
       {/* Success Message Toast */}
       {successMessage && (
         <div style={{
@@ -404,48 +522,65 @@ export default function AdminDashboard() {
       )}
 
       {/* Header */}
-      <div className="user-dashboard-header">
-        <div>
+      <div className="user-dashboard-header admin-hero">
+        <div className="admin-hero-copy">
+          <p className="admin-kicker">Control Centre Workspace</p>
           <h1>Admin Dashboard</h1>
           {user && <p className="user-welcome">Hi, {user.name || user.username}</p>}
-          <p className="user-subtitle">Manage platform</p>
+          <p className="user-subtitle">Shape listings, guide marketers, and keep the platform moving from one animated command space.</p>
         </div>
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <button onClick={() => setShowModal(true)} className="btn btn-primary">+ Add Marketer</button>
-          <button onClick={handleRefreshUserPlots} className="btn btn-secondary">Refresh User Plots</button>
-          <button onClick={handleDownload} className="btn btn-secondary">Download Excel</button>
-          <button onClick={handleLogout} className="btn btn-danger">Logout</button>
+        <div className="admin-hero-actions">
+          {showRefreshIndicator && (
+            <div className="dashboard-refresh-indicator" aria-live="polite">
+              <span className="dashboard-refresh-spinner" aria-hidden="true"></span>
+              Refreshing data...
+            </div>
+          )}
+          <button
+            onClick={() => setShowModal(true)}
+            className="btn admin-action-button admin-action-button-primary"
+          >
+            + Add Marketer
+          </button>
+          <button
+            onClick={handleRefreshUserPlots}
+            className="btn admin-action-button admin-action-button-secondary"
+          >
+            Refresh
+          </button>
+          <button
+            onClick={handleDownload}
+            className="btn admin-action-button admin-action-button-secondary"
+          >
+            Download Excel
+          </button>
+          <button
+            onClick={handleLogout}
+            className="btn admin-action-button admin-action-button-danger"
+          >
+            Logout
+          </button>
         </div>
       </div>
 
       {/* Loading Overlay */}
-      {loading && (
+      {showBlockingLoader && (
         <div className="user-loading">
           <div className="user-loading-spinner"></div>
         </div>
       )}
 
       {/* Stats - Clickable */}
-      <div className="user-form-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: '1.5rem' }}>
-        {[
-          { label: 'Marketers', value: stats.total_marketers, tab: 'marketers' },
-          { label: 'Properties', value: stats.total_properties, tab: 'properties' },
-          { label: 'MPesa Messages', value: mpesaMessages.length, tab: 'mpesa' }
-        ].map((s, i) => (
+      <div className="admin-stat-grid">
+        {statCards.map((s, i) => (
           <div
             key={i}
-            className="user-card"
-            style={{
-              padding: '1.25rem',
-              textAlign: 'center',
-              cursor: 'pointer',
-              border: tab === s.tab ? '2px solid #6366f1' : '1px solid rgba(229, 231, 235, 0.7)',
-              background: tab === s.tab ? 'linear-gradient(160deg, #eef2ff 0%, #faf5ff 100%)' : 'rgba(255, 255, 255, 0.95)'
-            }}
+            className={`user-card admin-stat-card ${tab === s.tab ? 'is-active' : ''}`}
             onClick={() => setTab(s.tab)}
           >
-            <p className="user-card-title" style={{ margin: 0, fontSize: '0.85rem' }}>{s.label}</p>
-            <h2 style={{ margin: '0.5rem 0 0', fontSize: '1.75rem', fontWeight: '700', color: '#4f46e5' }}>{s.value || 0}</h2>
+            <p className="admin-stat-label">{s.label}</p>
+            <h2 className="admin-stat-value">{s.value || 0}</h2>
+            <p className="admin-stat-note">{s.note}</p>
           </div>
         ))}
       </div>
@@ -454,7 +589,7 @@ export default function AdminDashboard() {
       <div className="marketers-section">
         {/* Marketers Table - List View */}
         {tab === 'marketers' && !selectedMarketer && (
-          <div className="user-card">
+          <div className="user-card admin-panel">
             <h2 className="user-card-title">All Marketers</h2>
             {marketers && marketers.length > 0 ? (
               <div className="user-rooms-table-wrapper">
@@ -586,7 +721,7 @@ export default function AdminDashboard() {
 
         {/* Marketer Detail View */}
         {tab === 'marketers' && selectedMarketer && (
-        <div className="user-card">
+        <div className="user-card admin-panel">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
             <button
               onClick={() => setSelectedMarketer(null)}
@@ -617,20 +752,42 @@ export default function AdminDashboard() {
                 <tr>
                   <th>Property Name</th>
                   <th>Location</th>
+                  <th>Status</th>
+                  <th>Payment</th>
                   <th>Date Added</th>
+                  <th>CTA</th>
                 </tr>
               </thead>
               <tbody>
-                {getPropertiesByMarketer(selectedMarketer.id).map(p => (
-                  <tr key={p.id}>
-                    <td>{p.property_name}</td>
-                    <td>{p.property_location}</td>
-                    <td>{p.created_at ? new Date(p.created_at).toLocaleDateString() : 'N/A'}</td>
-                  </tr>
-                ))}
+                {getPropertiesByMarketer(selectedMarketer.id).map(p => {
+                  const callTargets = getPropertyCallTargets(p);
+
+                  return (
+                    <tr key={p.id}>
+                      <td>{p.property_name}</td>
+                      <td>{p.property_location}</td>
+                      <td>
+                        <span className={getPropertyApprovalClassName(p.status)}>
+                          {getPropertyApprovalLabel(p.status)}
+                        </span>
+                      </td>
+                      <td>{getPaymentStatusLabel(p.payment_status)}</td>
+                      <td>{p.created_at ? new Date(p.created_at).toLocaleDateString() : 'N/A'}</td>
+                      <td>
+                        {callTargets[0] ? (
+                          <a href={callTargets[0].href} className="btn btn-call btn-compact">
+                            {callTargets[0].label}
+                          </a>
+                        ) : (
+                          <span className="dashboard-cta-muted">No phone</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
                 {getPropertiesByMarketer(selectedMarketer.id).length === 0 && (
                   <tr>
-                    <td colSpan="3" style={{ textAlign: 'center', padding: '2rem', color: '#9ca3af' }}>
+                    <td colSpan="6" style={{ textAlign: 'center', padding: '2rem', color: '#9ca3af' }}>
                       No properties found
                     </td>
                   </tr>
@@ -644,7 +801,7 @@ export default function AdminDashboard() {
 
       {/* Properties Table */}
       {tab === 'properties' && (
-        <div className="user-card">
+        <div className="user-card admin-panel">
           <h2 className="user-card-title">All Properties</h2>
           <div className="user-rooms-table-wrapper">
             <table className="user-rooms-table">
@@ -653,24 +810,43 @@ export default function AdminDashboard() {
                   <th>Property Name</th>
                   <th>Location</th>
                   <th>Marketer</th>
+                  <th>Status</th>
+                  <th>Payment</th>
                   <th>Date Added</th>
+                  <th>CTA</th>
                 </tr>
               </thead>
               <tbody>
                 {properties.map(p => {
                   const marketer = marketers.find(m => m.id === p.marketer_id);
+                  const callTargets = getPropertyCallTargets(p);
                   return (
                     <tr key={p.id} onClick={() => setSelectedProperty(p)} style={{ cursor: 'pointer' }}>
                       <td>{p.property_name}</td>
                       <td>{p.property_location}</td>
                       <td>{marketer?.name || 'Unknown'}</td>
+                      <td>
+                        <span className={getPropertyApprovalClassName(p.status)}>
+                          {getPropertyApprovalLabel(p.status)}
+                        </span>
+                      </td>
+                      <td>{getPaymentStatusLabel(p.payment_status)}</td>
                       <td>{p.created_at ? new Date(p.created_at).toLocaleDateString() : 'N/A'}</td>
+                      <td onClick={(event) => event.stopPropagation()}>
+                        {callTargets[0] ? (
+                          <a href={callTargets[0].href} className="btn btn-call btn-compact">
+                            {callTargets[0].label}
+                          </a>
+                        ) : (
+                          <span className="dashboard-cta-muted">No phone</span>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
                 {properties.length === 0 && (
                   <tr>
-                    <td colSpan="3" style={{ textAlign: 'center', padding: '2rem', color: '#9ca3af' }}>
+                    <td colSpan="7" style={{ textAlign: 'center', padding: '2rem', color: '#9ca3af' }}>
                       No properties found
                     </td>
                   </tr>
@@ -683,7 +859,7 @@ export default function AdminDashboard() {
 
       {/* MPesa Messages Table */}
       {tab === 'mpesa' && (
-        <div className="user-card">
+        <div className="user-card admin-panel">
           <h2 className="user-card-title">MPesa Transaction Messages</h2>
           <div className="user-rooms-table-wrapper">
             <table className="user-rooms-table">
@@ -697,9 +873,21 @@ export default function AdminDashboard() {
               <tbody>
                 {mpesaMessages.map(msg => (
                   <tr key={msg.id}>
-                    <td style={{ fontWeight: '600', color: '#4f46e5' }}>{msg.marketer_name}</td>
-                    <td style={{ maxWidth: '400px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.message_text}</td>
-                    <td>{msg.created_at ? new Date(msg.created_at).toLocaleDateString() : 'N/A'}</td>
+                    <td>
+                      <div style={{ fontWeight: '600', color: '#4f46e5' }}>{msg.marketer_name}</div>
+                      <div className="dashboard-message-meta">{msg.marketer_email || 'No email provided'}</div>
+                    </td>
+                    <td style={{ maxWidth: '420px' }}>
+                      <button
+                        type="button"
+                        className="dashboard-message-trigger"
+                        onClick={() => setSelectedMpesaMessage(msg)}
+                      >
+                        <span className="dashboard-message-preview">{getMessagePreview(msg.message_text)}</span>
+                        <span className="dashboard-message-link">View full message</span>
+                      </button>
+                    </td>
+                    <td>{msg.created_at ? new Date(msg.created_at).toLocaleString() : 'N/A'}</td>
                   </tr>
                 ))}
                 {mpesaMessages.length === 0 && (
@@ -711,6 +899,60 @@ export default function AdminDashboard() {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {selectedMpesaMessage && (
+        <div className="user-loading" style={{ background: 'rgba(15, 23, 42, 0.55)' }}>
+          <div className="user-card dashboard-message-modal">
+            <div className="dashboard-message-modal-header">
+              <div>
+                <p className="dashboard-message-kicker">MPesa message</p>
+                <h2 className="user-card-title" style={{ margin: 0 }}>Full transaction message</h2>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setSelectedMpesaMessage(null)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="dashboard-message-modal-grid">
+              <div className="dashboard-message-modal-item">
+                <span>Marketer</span>
+                <strong>{selectedMpesaMessage.marketer_name || 'Unknown marketer'}</strong>
+              </div>
+              <div className="dashboard-message-modal-item">
+                <span>Email</span>
+                <strong>{selectedMpesaMessage.marketer_email || 'N/A'}</strong>
+              </div>
+              <div className="dashboard-message-modal-item">
+                <span>Status</span>
+                <strong>{getReadableStatus(selectedMpesaMessage.status)}</strong>
+              </div>
+              <div className="dashboard-message-modal-item">
+                <span>Amount</span>
+                <strong>{getCurrencyLabel(selectedMpesaMessage.amount)}</strong>
+              </div>
+              <div className="dashboard-message-modal-item">
+                <span>Transaction ID</span>
+                <strong>{selectedMpesaMessage.transaction_id || 'N/A'}</strong>
+              </div>
+              <div className="dashboard-message-modal-item">
+                <span>Received</span>
+                <strong>{selectedMpesaMessage.created_at ? new Date(selectedMpesaMessage.created_at).toLocaleString() : 'N/A'}</strong>
+              </div>
+            </div>
+
+            <div className="dashboard-message-modal-body">
+              <div className="dashboard-message-modal-label">Full message</div>
+              <div className="dashboard-message-modal-text">
+                {selectedMpesaMessage.message_text || 'No message text available.'}
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -806,14 +1048,97 @@ export default function AdminDashboard() {
               <strong>Type:</strong> {selectedProperty.property_type || 'N/A'}
             </div>
             <div style={{ marginBottom: '1rem' }}>
-              <strong>Status:</strong> {selectedProperty.status}
+              <strong>Package:</strong> {selectedProperty.package_selected || 'N/A'}
             </div>
+            <div style={{ marginBottom: '1rem' }}>
+              <strong>Status:</strong>{' '}
+              <span className={getPropertyApprovalClassName(selectedProperty.status)}>
+                {getPropertyApprovalLabel(selectedProperty.status)}
+              </span>
+            </div>
+            <div style={{ marginBottom: '1rem' }}>
+              <strong>Payment Status:</strong> {getPaymentStatusLabel(selectedProperty.payment_status)}
+            </div>
+            <div style={{ marginBottom: '1rem' }}>
+              <strong>Payment Amount:</strong>{' '}
+              {selectedProperty.payment_amount ? `KSh ${Number(selectedProperty.payment_amount).toLocaleString()}` : 'N/A'}
+            </div>
+            <div style={{ marginBottom: '1rem' }}>
+              <strong>Payment Phone:</strong> {selectedProperty.payment_phone || 'N/A'}
+            </div>
+            {selectedProperty.payment_requested_at && (
+              <div style={{ marginBottom: '1rem' }}>
+                <strong>Payment Requested:</strong> {new Date(selectedProperty.payment_requested_at).toLocaleString()}
+              </div>
+            )}
+            {selectedProperty.paid_at && (
+              <div style={{ marginBottom: '1rem' }}>
+                <strong>Paid At:</strong> {new Date(selectedProperty.paid_at).toLocaleString()}
+              </div>
+            )}
+            {selectedProperty.mpesa_receipt_number && (
+              <div style={{ marginBottom: '1rem' }}>
+                <strong>MPesa Receipt:</strong> {selectedProperty.mpesa_receipt_number}
+              </div>
+            )}
+            {selectedProperty.payment_result_desc && (
+              <div style={{ marginBottom: '1rem' }}>
+                <strong>Payment Note:</strong> {selectedProperty.payment_result_desc}
+              </div>
+            )}
+            <div style={{ marginBottom: '1rem' }}>
+              <strong>Phone Number 1:</strong> {selectedProperty.phone_number_1 || selectedProperty.phone || 'N/A'}
+            </div>
+            {selectedProperty.phone_number_2 && (
+              <div style={{ marginBottom: '1rem' }}>
+                <strong>Phone Number 2:</strong> {selectedProperty.phone_number_2}
+              </div>
+            )}
+            <div style={{ marginBottom: '1rem' }}>
+              <strong>WhatsApp Phone:</strong> {selectedProperty.whatsapp_phone || 'N/A'}
+            </div>
+            {selectedPropertyCallTargets.length > 0 && (
+              <div className="property-owner-cta-row" style={{ padding: 0, marginBottom: '1rem' }}>
+                {selectedPropertyCallTargets.map((target, index) => (
+                  <a
+                    key={`${selectedProperty.id}-${target.key}`}
+                    href={target.href}
+                    className={`btn ${index === 0 ? 'btn-call' : 'btn-call-secondary'}`}
+                  >
+                    {target.label}
+                  </a>
+                ))}
+              </div>
+            )}
             <div style={{ marginBottom: '1rem' }}>
               <strong>Marketer:</strong> {selectedProperty.marketer_name || 'Unknown'}
             </div>
             <div style={{ marginBottom: '1rem' }}>
               <strong>Date Added:</strong> {selectedProperty.created_at ? new Date(selectedProperty.created_at).toLocaleDateString() : 'N/A'}
             </div>
+
+            {selectedProperty.images && selectedProperty.images.length > 0 && (
+              <div style={{ marginTop: '1rem' }}>
+                <strong>Images:</strong>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '0.75rem', marginTop: '0.75rem' }}>
+                  {selectedProperty.images.map((image, idx) => {
+                    const imageSrc = getPropertyImageSrc(image);
+                    if (!imageSrc) {
+                      return null;
+                    }
+
+                    return (
+                      <img
+                        key={`${selectedProperty.id}-image-${idx}`}
+                        src={imageSrc}
+                        alt={`${selectedProperty.property_name} ${idx + 1}`}
+                        style={{ width: '100%', aspectRatio: '1 / 1', objectFit: 'cover', borderRadius: '12px', border: '1px solid rgba(99, 102, 241, 0.16)' }}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             
             {selectedProperty.rooms && selectedProperty.rooms.length > 0 && (
               <div style={{ marginTop: '1rem' }}>
@@ -855,7 +1180,7 @@ export default function AdminDashboard() {
                     setTimeout(() => setSuccessMessage(null), 3000);
                   }
                   setSelectedProperty(null);
-                  loadData();
+                  await loadData();
                 }}
                 className="btn btn-primary"
               >
