@@ -13,13 +13,14 @@ async function fetchAPI(endpoint, options = {}) {
     const role = localStorage.getItem('role') || '';
     const username = localStorage.getItem('username') || localStorage.getItem('name') || '';
     const marketerId = localStorage.getItem('marketerId') || '';
+    const adminPortal = localStorage.getItem('adminPortal') || '';
     const url = API_BASE_URL + endpoint;
     console.log('=== API CALL ===');
     console.log('URL:', url);
     console.log('Options:', options);
     console.log('Request body:', options.body);
     
-    console.log('Sending headers:', { role, username, marketerId, token: token ? 'present' : 'not set' });
+    console.log('Sending headers:', { role, username, marketerId, adminPortal, token: token ? 'present' : 'not set' });
     console.log('Request body:', options.body);
 
     // Build headers
@@ -29,6 +30,7 @@ async function fetchAPI(endpoint, options = {}) {
       'X-Auth-Role': role,
       'X-Auth-User': username,
       'X-Auth-Marketer-Id': marketerId,
+      ...(adminPortal ? { 'X-Auth-Portal': adminPortal } : {}),
       ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
       ...(options.headers || {}),
     };
@@ -101,6 +103,7 @@ const api = {
     localStorage.removeItem('name');
     localStorage.removeItem('marketerId');
     localStorage.removeItem('mustChangePassword');
+    localStorage.removeItem('adminPortal');
     return Promise.resolve({ success: true });
   },
   submitProperty: (data) =>
@@ -115,6 +118,7 @@ const api = {
       body: { id },
     }),
   getAdminStats: () => fetchAPI('/api/admin/dashboard.php'),
+  getAdmins: () => fetchAPI('/api/admin/admins.php'),
   getMarketers: () => fetchAPI('/api/admin/marketers.php'),
   addMarketer: (data) =>
     fetchAPI('/api/admin/marketers.php', {
@@ -145,6 +149,11 @@ const api = {
     fetchAPI('/api/admin/marketers.php', {
       method: 'POST',
       body: { id, action: 'unblock' },
+    }),
+  unlockAdmin: (id) =>
+    fetchAPI('/api/admin/admins.php', {
+      method: 'POST',
+      body: { id, action: 'unlock', portal: 'ledger' },
     }),
   getAllProperties: () => fetchAPI('/api/admin/properties.php'),
   updatePropertyStatus: (id, status) =>
@@ -181,15 +190,25 @@ const api = {
       method: 'POST',
       body: { current_password: currentPassword, new_password: newPassword },
     }),
-  requestPasswordReset: (type, email) =>
+  changeLedgerPassword: (currentPassword, newPassword, email = '') =>
+    fetchAPI('/api/admin/change-password.php', {
+      method: 'POST',
+      body: {
+        current_password: currentPassword,
+        new_password: newPassword,
+        portal: 'ledger',
+        ...(email ? { email } : {}),
+      },
+    }),
+  requestPasswordReset: (type, email, options = {}) =>
     fetchAPI('/api/auth/request-password-reset.php', {
       method: 'POST',
-      body: { type, email },
+      body: { type, email, ...options },
     }),
-  resetPassword: (type, email, token, newPassword) =>
+  resetPassword: (type, email, token, newPassword, options = {}) =>
     fetchAPI('/api/auth/reset-password.php', {
       method: 'POST',
-      body: { type, email, token, new_password: newPassword },
+      body: { type, email, token, new_password: newPassword, ...options },
     }),
 };
 

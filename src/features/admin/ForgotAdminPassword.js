@@ -16,7 +16,7 @@ export default function ForgotAdminPassword() {
     setLoading(true);
 
     try {
-      const result = await api.requestPasswordReset('admin', email.trim());
+      const result = await api.requestPasswordReset('admin', email.trim(), { portal: 'ledger' });
       if (!result.success) {
         setError(result.message || 'Unable to send reset link.');
         return;
@@ -33,15 +33,15 @@ export default function ForgotAdminPassword() {
     <div className="user-dashboard">
       <div className="user-dashboard-header" style={{ justifyContent: 'center' }}>
         <div style={{ textAlign: 'center' }}>
-          <h1>PlotConnect</h1>
-          <p className="user-subtitle">Forgot password</p>
+          <h1>PlotConnectLedger</h1>
+          <p className="user-subtitle">Forgot ledger password</p>
         </div>
       </div>
 
       <div className="user-card" style={{ maxWidth: '450px', margin: '0 auto', width: '90%' }}>
-        <h2 className="user-card-title">Reset Admin Password</h2>
+        <h2 className="user-card-title">Reset Ledger Password</h2>
         <p style={{ color: '#6b7280', marginBottom: '1rem' }}>
-          Enter your admin email to receive a reset link.
+          Enter the ledger email to receive a reset link.
         </p>
 
         {error && <div className="user-alert user-alert-error">{error}</div>}
@@ -55,7 +55,7 @@ export default function ForgotAdminPassword() {
               className="input"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="Enter your admin email"
+              placeholder="Enter ledger email"
               required
             />
           </div>

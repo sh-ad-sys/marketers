@@ -4,9 +4,9 @@ import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-d
 import './App.css';
 import ProtectedRoute from './features/shared/ProtectedRoute';
 import AdminLogin from './features/admin/AdminLogin';
-import AdminDashboard from './features/admin/AdminDashboard';
 import ForgotAdminPassword from './features/admin/ForgotAdminPassword';
 import ResetAdminPassword from './features/admin/ResetAdminPassword';
+import LedgerDashboard from './features/admin/LedgerDashboard';
 
 function App() {
   return (
@@ -20,7 +20,23 @@ function App() {
           path="/admin"
           element={
             <ProtectedRoute role="admin" redirectTo="/">
-              <AdminDashboard />
+              <LedgerDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute role="admin" redirectTo="/">
+              <LedgerDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/ledger"
+          element={
+            <ProtectedRoute role="admin" redirectTo="/">
+              <LedgerDashboard />
             </ProtectedRoute>
           }
         />
@@ -29,9 +45,8 @@ function App() {
         <Route path="/login" element={<Navigate to="/" replace />} />
         <Route path="/admin-login" element={<Navigate to="/" replace />} />
         <Route path="/user-login" element={<Navigate to="/" replace />} />
-        <Route path="/dashboard" element={<Navigate to="/admin" replace />} />
         <Route path="/plotconnectmarketers" element={<Navigate to="/" replace />} />
-        <Route path="/plotconnectmarketers/dashboard" element={<Navigate to="/" replace />} />
+        <Route path="/plotconnectmarketers/dashboard" element={<Navigate to="/dashboard" replace />} />
         <Route path="/plotconnectmarketers/set-password" element={<Navigate to="/" replace />} />
 
         <Route path="*" element={<Navigate to="/" replace />} />

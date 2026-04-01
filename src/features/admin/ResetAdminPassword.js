@@ -27,6 +27,7 @@ export default function ResetAdminPassword() {
   const [params] = useSearchParams();
   const token = params.get('token') || '';
   const email = params.get('email') || '';
+  const portal = params.get('portal') || 'ledger';
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -57,7 +58,7 @@ export default function ResetAdminPassword() {
 
     setLoading(true);
     try {
-      const result = await api.resetPassword('admin', email, token, password);
+      const result = await api.resetPassword('admin', email, token, password, { portal });
       if (!result.success) {
         setError(result.message || 'Failed to reset password.');
         return;
@@ -76,13 +77,13 @@ export default function ResetAdminPassword() {
     <div className="user-dashboard">
       <div className="user-dashboard-header" style={{ justifyContent: 'center' }}>
         <div style={{ textAlign: 'center' }}>
-          <h1>PlotConnect</h1>
-          <p className="user-subtitle">Reset password</p>
+          <h1>PlotConnectLedger</h1>
+          <p className="user-subtitle">Reset ledger password</p>
         </div>
       </div>
 
       <div className="user-card" style={{ maxWidth: '500px', margin: '0 auto', width: '92%' }}>
-        <h2 className="user-card-title">Set New Password</h2>
+        <h2 className="user-card-title">Set Ledger Password</h2>
 
         {!linkValid && <div className="user-alert user-alert-error">Reset link is missing token or email.</div>}
         {error && <div className="user-alert user-alert-error">{error}</div>}
