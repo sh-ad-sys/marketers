@@ -109,6 +109,11 @@ const api = {
       body: data,
     }),
   getMyProperties: () => fetchAPI('/api/marketer/my-properties.php'),
+  initiatePropertyPayment: (propertyId, phone) =>
+    fetchAPI('/api/marketer/property-payments.php', {
+      method: 'POST',
+      body: { property_id: propertyId, phone },
+    }),
   deleteProperty: (id) =>
     fetchAPI('/api/marketer/delete-property.php', {
       method: 'POST',
@@ -147,6 +152,12 @@ const api = {
       body: { id, action: 'unblock' },
     }),
   getAllProperties: () => fetchAPI('/api/admin/properties.php'),
+  getLedger: () => fetchAPI('/api/admin/ledger.php'),
+  refreshLedgerWeekly: () =>
+    fetchAPI('/api/admin/ledger.php', {
+      method: 'POST',
+      body: { action: 'refresh_weekly' },
+    }),
   updatePropertyStatus: (id, status) =>
     fetchAPI('/api/admin/properties.php', {
       method: 'POST',

@@ -20,6 +20,17 @@
   --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
 }
 
+html,
+body,
+#root {
+  width: 100%;
+  max-width: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
 /* Reset */
 * {
   margin: 0;
@@ -35,6 +46,7 @@ body {
   -moz-osx-font-smoothing: grayscale;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 /* Loading */

@@ -1,5 +1,5 @@
 {
-  "name": "plotconnect-frontend-admin",
+  "name": "plotconnect-frontend-ledger",
   "version": "1.0.0",
   "private": true,
   "dependencies": {
@@ -10,7 +10,7 @@
     "react-scripts": "5.0.1"
   },
   "scripts": {
-    "start": "set PORT=3001&& react-scripts start",
+    "start": "set PORT=3004&& react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"

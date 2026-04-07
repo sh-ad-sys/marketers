@@ -11,9 +11,11 @@ export default function AdminDashboard() {
   const [properties, setProperties] = useState([]);
   const [mpesaMessages, setMpesaMessages] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [hasLoadedData, setHasLoadedData] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [selectedMarketer, setSelectedMarketer] = useState(null);
   const [selectedProperty, setSelectedProperty] = useState(null);
+  const [selectedMpesaMessage, setSelectedMpesaMessage] = useState(null);
   const [newMarketer, setNewMarketer] = useState({ name: '', email: '', phone: '', password: '' });
   const [successMessage, setSuccessMessage] = useState(null);
   const [temporaryPassword, setTemporaryPassword] = useState('');
@@ -70,7 +72,7 @@ export default function AdminDashboard() {
         // Session may not persist cross-origin — that's OK, localStorage handles auth
       }
 
-      loadData();
+      await loadData();
     } catch {
       navigate('/');
     } finally {
@@ -81,12 +83,14 @@ export default function AdminDashboard() {
   const loadData = async () => {
     console.log('=== loadData called ===');
     try {
-      const s = await api.getAdminStats();
+      const [s, m, p, mp] = await Promise.all([
+        api.getAdminStats(),
+        api.getMarketers(),
+        api.getAllProperties(),
+        api.getAdminMpesaMessages(),
+      ]);
       console.log('Stats:', s);
-      const m = await api.getMarketers();
       console.log('Marketers:', m);
-      const p = await api.getAllProperties();
-      const mp = await api.getAdminMpesaMessages();
       
       setStats(s.data || {});
       setMarketers(m.data || []);
@@ -96,11 +100,78 @@ export default function AdminDashboard() {
       console.log('Data loaded - marketers:', m.data);
     } catch (err) {
       console.error('Error in loadData:', err);
+    } finally {
+      setHasLoadedData(true);
     }
   };
 
   const getPropertiesByMarketer = (marketerId) => {
     return properties.filter(p => p.marketer_id === marketerId);
+  };
+
+  const isPropertyApproved = (status) => String(status ?? '').toLowerCase() === 'approved';
+
+  const getPropertyApprovalLabel = (status) => (
+    isPropertyApproved(status) ? 'Approved' : 'Not Approved'
+  );
+
+  const getPropertyApprovalClassName = (status) => (
+    `user-property-status ${isPropertyApproved(status) ? 'status-approved' : 'status-rejected'}`
+  );
+
+  const getPaymentStatusLabel = (status) => {
+    const normalizedStatus = String(status || 'unpaid').trim().toLowerCase();
+
+    if (normalizedStatus === 'completed') {
+      return 'Paid';
+    }
+    if (normalizedStatus === 'initiated') {
+      return 'Awaiting Confirmation';
+    }
+    if (normalizedStatus === 'failed') {
+      return 'Failed';
+    }
+
+    return 'Unpaid';
+  };
+
+  const getMessagePreview = (message) => {
+    const text = String(message || '').trim();
+    if (!text) {
+      return 'No message text';
+    }
+
+    return text.length > 110 ? `${text.slice(0, 110)}...` : text;
+  };
+
+  const getReadableStatus = (status) => {
+    const text = String(status || '').trim().replace(/[_-]+/g, ' ');
+    if (!text) {
+      return 'Pending';
+    }
+
+    return text.replace(/\b\w/g, (char) => char.toUpperCase());
+  };
+
+  const getCurrencyLabel = (amount) => {
+    const numericAmount = Number(amount);
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+      return 'N/A';
+    }
+
+    return `KSh ${numericAmount.toLocaleString()}`;
+  };
+
+  const getPropertyImageSrc = (image) => {
+    if (typeof image === 'string') {
+      return image;
+    }
+
+    if (image && typeof image === 'object') {
+      return image.data_url || image.url || image.src || '';
+    }
+
+    return '';
   };
 
   const updateMarketerState = (id, changes) => {
@@ -174,7 +245,7 @@ export default function AdminDashboard() {
         setTimeout(() => setSuccessMessage(null), 3000);
         setShowModal(false);
         setNewMarketer({ name: '', email: '', phone: '', password: '' });
-        loadData();
+        await loadData();
       } else {
         setError(result.message || 'Failed to add marketer');
       }
@@ -197,7 +268,7 @@ export default function AdminDashboard() {
         setSelectedMarketer(prev => (prev && prev.id === id ? null : prev));
         setSuccessMessage('Marketer deleted successfully!');
         setTimeout(() => setSuccessMessage(null), 3000);
-        loadData();
+        await loadData();
       } else {
         setError(result.message || 'Failed to delete marketer');
       }
@@ -216,7 +287,7 @@ export default function AdminDashboard() {
         updateMarketerState(id, { is_authorized: 1, is_blocked: 0 });
         setSuccessMessage('Marketer authorized successfully!');
         setTimeout(() => setSuccessMessage(null), 3000);
-        loadData();
+        await loadData();
       } else {
         setError(result.message || 'Failed to authorize marketer');
       }
@@ -235,7 +306,7 @@ export default function AdminDashboard() {
         updateMarketerState(id, { is_authorized: 0 });
         setSuccessMessage('Marketer rejected successfully!');
         setTimeout(() => setSuccessMessage(null), 3000);
-        loadData();
+        await loadData();
       } else {
         setError(result.message || 'Failed to reject marketer');
       }
@@ -254,7 +325,7 @@ export default function AdminDashboard() {
         updateMarketerState(id, { is_blocked: 1, is_authorized: 0 });
         setSuccessMessage('Marketer blocked successfully!');
         setTimeout(() => setSuccessMessage(null), 3000);
-        loadData();
+        await loadData();
       } else {
         setError(result.message || 'Failed to block marketer');
       }
@@ -273,7 +344,7 @@ export default function AdminDashboard() {
         updateMarketerState(id, { is_blocked: 0 });
         setSuccessMessage('Marketer unblocked successfully!');
         setTimeout(() => setSuccessMessage(null), 3000);
-        loadData();
+        await loadData();
       } else {
         setError(result.message || 'Failed to unblock marketer');
       }
@@ -284,28 +355,8 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleMpesaMessageAction = async (messageId, action) => {
-    if (action === 'delete') {
-      if (!window.confirm('Are you sure you want to delete this message?')) {
-        return;
-      }
-    }
-    setLoading(true);
-    try {
-      const result = await api.updateMpesaMessage(messageId, action);
-      if (result.success) {
-        setSuccessMessage(result.message);
-        setTimeout(() => setSuccessMessage(null), 3000);
-        loadData();
-      } else {
-        setError(result.message || `Failed to ${action} message`);
-      }
-    } catch (error) {
-      setError(`An error occurred while ${action}ing the message`);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const showBlockingLoader = loading && !hasLoadedData;
+  const showRefreshIndicator = loading && hasLoadedData;
 
   const exportToExcel = (data, filename) => {
     const headers = Object.keys(data[0] || {});
@@ -338,7 +389,7 @@ export default function AdminDashboard() {
           'Property Name': p.property_name,
           Location: p.property_location,
           Marketer: marketer?.name || 'Unknown',
-          Status: p.status,
+          Status: getPropertyApprovalLabel(p.status),
           'Date Added': p.created_at ? new Date(p.created_at).toLocaleDateString() : 'N/A'
         };
       });
@@ -410,8 +461,15 @@ export default function AdminDashboard() {
           {user && <p className="user-welcome">Hi, {user.name || user.username}</p>}
           <p className="user-subtitle">Manage platform</p>
         </div>
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {showRefreshIndicator && (
+            <div className="dashboard-refresh-indicator" aria-live="polite">
+              <span className="dashboard-refresh-spinner" aria-hidden="true"></span>
+              Refreshing data...
+            </div>
+          )}
           <button onClick={() => setShowModal(true)} className="btn btn-primary">+ Add Marketer</button>
+          <button onClick={() => navigate('/ledger')} className="btn btn-secondary">Open Ledger</button>
           <button onClick={handleRefreshUserPlots} className="btn btn-secondary">Refresh User Plots</button>
           <button onClick={handleDownload} className="btn btn-secondary">Download Excel</button>
           <button onClick={handleLogout} className="btn btn-danger">Logout</button>
@@ -419,7 +477,7 @@ export default function AdminDashboard() {
       </div>
 
       {/* Loading Overlay */}
-      {loading && (
+      {showBlockingLoader && (
         <div className="user-loading">
           <div className="user-loading-spinner"></div>
         </div>
@@ -617,6 +675,8 @@ export default function AdminDashboard() {
                 <tr>
                   <th>Property Name</th>
                   <th>Location</th>
+                  <th>Status</th>
+                  <th>Payment</th>
                   <th>Date Added</th>
                 </tr>
               </thead>
@@ -625,12 +685,18 @@ export default function AdminDashboard() {
                   <tr key={p.id}>
                     <td>{p.property_name}</td>
                     <td>{p.property_location}</td>
+                    <td>
+                      <span className={getPropertyApprovalClassName(p.status)}>
+                        {getPropertyApprovalLabel(p.status)}
+                      </span>
+                    </td>
+                    <td>{getPaymentStatusLabel(p.payment_status)}</td>
                     <td>{p.created_at ? new Date(p.created_at).toLocaleDateString() : 'N/A'}</td>
                   </tr>
                 ))}
                 {getPropertiesByMarketer(selectedMarketer.id).length === 0 && (
                   <tr>
-                    <td colSpan="3" style={{ textAlign: 'center', padding: '2rem', color: '#9ca3af' }}>
+                    <td colSpan="5" style={{ textAlign: 'center', padding: '2rem', color: '#9ca3af' }}>
                       No properties found
                     </td>
                   </tr>
@@ -653,6 +719,8 @@ export default function AdminDashboard() {
                   <th>Property Name</th>
                   <th>Location</th>
                   <th>Marketer</th>
+                  <th>Status</th>
+                  <th>Payment</th>
                   <th>Date Added</th>
                 </tr>
               </thead>
@@ -664,13 +732,19 @@ export default function AdminDashboard() {
                       <td>{p.property_name}</td>
                       <td>{p.property_location}</td>
                       <td>{marketer?.name || 'Unknown'}</td>
+                      <td>
+                        <span className={getPropertyApprovalClassName(p.status)}>
+                          {getPropertyApprovalLabel(p.status)}
+                        </span>
+                      </td>
+                      <td>{getPaymentStatusLabel(p.payment_status)}</td>
                       <td>{p.created_at ? new Date(p.created_at).toLocaleDateString() : 'N/A'}</td>
                     </tr>
                   );
                 })}
                 {properties.length === 0 && (
                   <tr>
-                    <td colSpan="3" style={{ textAlign: 'center', padding: '2rem', color: '#9ca3af' }}>
+                    <td colSpan="6" style={{ textAlign: 'center', padding: '2rem', color: '#9ca3af' }}>
                       No properties found
                     </td>
                   </tr>
@@ -697,9 +771,21 @@ export default function AdminDashboard() {
               <tbody>
                 {mpesaMessages.map(msg => (
                   <tr key={msg.id}>
-                    <td style={{ fontWeight: '600', color: '#4f46e5' }}>{msg.marketer_name}</td>
-                    <td style={{ maxWidth: '400px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.message_text}</td>
-                    <td>{msg.created_at ? new Date(msg.created_at).toLocaleDateString() : 'N/A'}</td>
+                    <td>
+                      <div style={{ fontWeight: '600', color: '#4f46e5' }}>{msg.marketer_name}</div>
+                      <div className="dashboard-message-meta">{msg.marketer_email || 'No email provided'}</div>
+                    </td>
+                    <td style={{ maxWidth: '420px' }}>
+                      <button
+                        type="button"
+                        className="dashboard-message-trigger"
+                        onClick={() => setSelectedMpesaMessage(msg)}
+                      >
+                        <span className="dashboard-message-preview">{getMessagePreview(msg.message_text)}</span>
+                        <span className="dashboard-message-link">View full message</span>
+                      </button>
+                    </td>
+                    <td>{msg.created_at ? new Date(msg.created_at).toLocaleString() : 'N/A'}</td>
                   </tr>
                 ))}
                 {mpesaMessages.length === 0 && (
@@ -711,6 +797,60 @@ export default function AdminDashboard() {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {selectedMpesaMessage && (
+        <div className="user-loading" style={{ background: 'rgba(15, 23, 42, 0.55)' }}>
+          <div className="user-card dashboard-message-modal">
+            <div className="dashboard-message-modal-header">
+              <div>
+                <p className="dashboard-message-kicker">MPesa message</p>
+                <h2 className="user-card-title" style={{ margin: 0 }}>Full transaction message</h2>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setSelectedMpesaMessage(null)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="dashboard-message-modal-grid">
+              <div className="dashboard-message-modal-item">
+                <span>Marketer</span>
+                <strong>{selectedMpesaMessage.marketer_name || 'Unknown marketer'}</strong>
+              </div>
+              <div className="dashboard-message-modal-item">
+                <span>Email</span>
+                <strong>{selectedMpesaMessage.marketer_email || 'N/A'}</strong>
+              </div>
+              <div className="dashboard-message-modal-item">
+                <span>Status</span>
+                <strong>{getReadableStatus(selectedMpesaMessage.status)}</strong>
+              </div>
+              <div className="dashboard-message-modal-item">
+                <span>Amount</span>
+                <strong>{getCurrencyLabel(selectedMpesaMessage.amount)}</strong>
+              </div>
+              <div className="dashboard-message-modal-item">
+                <span>Transaction ID</span>
+                <strong>{selectedMpesaMessage.transaction_id || 'N/A'}</strong>
+              </div>
+              <div className="dashboard-message-modal-item">
+                <span>Received</span>
+                <strong>{selectedMpesaMessage.created_at ? new Date(selectedMpesaMessage.created_at).toLocaleString() : 'N/A'}</strong>
+              </div>
+            </div>
+
+            <div className="dashboard-message-modal-body">
+              <div className="dashboard-message-modal-label">Full message</div>
+              <div className="dashboard-message-modal-text">
+                {selectedMpesaMessage.message_text || 'No message text available.'}
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -806,7 +946,54 @@ export default function AdminDashboard() {
               <strong>Type:</strong> {selectedProperty.property_type || 'N/A'}
             </div>
             <div style={{ marginBottom: '1rem' }}>
-              <strong>Status:</strong> {selectedProperty.status}
+              <strong>Package:</strong> {selectedProperty.package_selected || 'N/A'}
+            </div>
+            <div style={{ marginBottom: '1rem' }}>
+              <strong>Status:</strong>{' '}
+              <span className={getPropertyApprovalClassName(selectedProperty.status)}>
+                {getPropertyApprovalLabel(selectedProperty.status)}
+              </span>
+            </div>
+            <div style={{ marginBottom: '1rem' }}>
+              <strong>Payment Status:</strong> {getPaymentStatusLabel(selectedProperty.payment_status)}
+            </div>
+            <div style={{ marginBottom: '1rem' }}>
+              <strong>Payment Amount:</strong>{' '}
+              {selectedProperty.payment_amount ? `KSh ${Number(selectedProperty.payment_amount).toLocaleString()}` : 'N/A'}
+            </div>
+            <div style={{ marginBottom: '1rem' }}>
+              <strong>Payment Phone:</strong> {selectedProperty.payment_phone || 'N/A'}
+            </div>
+            {selectedProperty.payment_requested_at && (
+              <div style={{ marginBottom: '1rem' }}>
+                <strong>Payment Requested:</strong> {new Date(selectedProperty.payment_requested_at).toLocaleString()}
+              </div>
+            )}
+            {selectedProperty.paid_at && (
+              <div style={{ marginBottom: '1rem' }}>
+                <strong>Paid At:</strong> {new Date(selectedProperty.paid_at).toLocaleString()}
+              </div>
+            )}
+            {selectedProperty.mpesa_receipt_number && (
+              <div style={{ marginBottom: '1rem' }}>
+                <strong>MPesa Receipt:</strong> {selectedProperty.mpesa_receipt_number}
+              </div>
+            )}
+            {selectedProperty.payment_result_desc && (
+              <div style={{ marginBottom: '1rem' }}>
+                <strong>Payment Note:</strong> {selectedProperty.payment_result_desc}
+              </div>
+            )}
+            <div style={{ marginBottom: '1rem' }}>
+              <strong>Phone Number 1:</strong> {selectedProperty.phone_number_1 || selectedProperty.phone || 'N/A'}
+            </div>
+            {selectedProperty.phone_number_2 && (
+              <div style={{ marginBottom: '1rem' }}>
+                <strong>Phone Number 2:</strong> {selectedProperty.phone_number_2}
+              </div>
+            )}
+            <div style={{ marginBottom: '1rem' }}>
+              <strong>WhatsApp Phone:</strong> {selectedProperty.whatsapp_phone || 'N/A'}
             </div>
             <div style={{ marginBottom: '1rem' }}>
               <strong>Marketer:</strong> {selectedProperty.marketer_name || 'Unknown'}
@@ -814,6 +1001,29 @@ export default function AdminDashboard() {
             <div style={{ marginBottom: '1rem' }}>
               <strong>Date Added:</strong> {selectedProperty.created_at ? new Date(selectedProperty.created_at).toLocaleDateString() : 'N/A'}
             </div>
+
+            {selectedProperty.images && selectedProperty.images.length > 0 && (
+              <div style={{ marginTop: '1rem' }}>
+                <strong>Images:</strong>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '0.75rem', marginTop: '0.75rem' }}>
+                  {selectedProperty.images.map((image, idx) => {
+                    const imageSrc = getPropertyImageSrc(image);
+                    if (!imageSrc) {
+                      return null;
+                    }
+
+                    return (
+                      <img
+                        key={`${selectedProperty.id}-image-${idx}`}
+                        src={imageSrc}
+                        alt={`${selectedProperty.property_name} ${idx + 1}`}
+                        style={{ width: '100%', aspectRatio: '1 / 1', objectFit: 'cover', borderRadius: '12px', border: '1px solid rgba(99, 102, 241, 0.16)' }}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             
             {selectedProperty.rooms && selectedProperty.rooms.length > 0 && (
               <div style={{ marginTop: '1rem' }}>
@@ -855,7 +1065,7 @@ export default function AdminDashboard() {
                     setTimeout(() => setSuccessMessage(null), 3000);
                   }
                   setSelectedProperty(null);
-                  loadData();
+                  await loadData();
                 }}
                 className="btn btn-primary"
               >

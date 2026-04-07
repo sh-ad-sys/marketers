@@ -1,11 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import '../../components/UserDashboard.css';
 
 const PROPERTY_TYPES = ['Rental Rooms', 'Hostel', 'Apartments', 'Lodge / Guest Rooms', 'Short Stay Rooms'];
 const ROOM_TYPES = ['Single Room', 'Bedsitter', '1 Bedroom', 'Standard Lodge Room', 'Executive Room', 'Other'];
-const COUNTRIES = ['Kenya', 'Uganda', 'Tanzania', 'Rwanda', 'Nigeria', 'South Africa', 'Ghana', 'Ethiopia', 'Other'];
+const MAX_PROPERTY_IMAGES = 8;
+const IMAGE_MAX_DIMENSION = 1600;
+const IMAGE_OUTPUT_QUALITY = 0.82;
+const INITIAL_PAYMENT_STATUS_CHECK_DELAY_MS = 5000;
+const REPEAT_PAYMENT_STATUS_CHECK_DELAY_MS = 10000;
+const MAX_PAYMENT_STATUS_CHECK_ATTEMPTS = 12;
 
 const KENYA_COUNTIES = [
   'Mombasa', 'Nairobi', 'Kisumu', 'Nakuru', 'Eldoret', 'Kericho', 'Kisii', 'Nyamira',
@@ -23,6 +28,161 @@ const PACKAGES = [
   { name: 'Premium', price: '15,000', desc: 'Top placement & priority' }
 ];
 
+function createEmptyPropertyForm() {
+  return {
+    owner_name: '',
+    phone_number_1: '',
+    phone_number_2: '',
+    whatsapp_phone: '',
+    property_name: '',
+    property_location: '',
+    property_type: [],
+    booking_type: '',
+    package_selected: '',
+    county: '',
+    area: '',
+    images: []
+  };
+}
+
+function normalizePropertyImage(image) {
+  if (typeof image === 'string') {
+    return image;
+  }
+
+  if (image && typeof image === 'object') {
+    return image.data_url || image.url || image.src || '';
+  }
+
+  return '';
+}
+
+function resizeImageFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      const img = new Image();
+
+      img.onload = () => {
+        const largestSide = Math.max(img.width, img.height);
+        const scale = largestSide > IMAGE_MAX_DIMENSION ? IMAGE_MAX_DIMENSION / largestSide : 1;
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+
+        const context = canvas.getContext('2d');
+        if (!context) {
+          resolve(typeof reader.result === 'string' ? reader.result : '');
+          return;
+        }
+
+        context.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', IMAGE_OUTPUT_QUALITY));
+      };
+
+      img.onerror = () => reject(new Error(`Unable to process image: ${file.name}`));
+      img.src = typeof reader.result === 'string' ? reader.result : '';
+    };
+
+    reader.onerror = () => reject(new Error(`Unable to read image: ${file.name}`));
+    reader.readAsDataURL(file);
+  });
+}
+
+function formatPropertyDateTime(value) {
+  const normalizedValue = typeof value === 'string' ? value.replace(' ', 'T') : value;
+  const parsedDate = normalizedValue ? new Date(normalizedValue) : new Date();
+  const safeDate = Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
+
+  return safeDate.toLocaleString([], {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function formatCurrencyValue(value) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return null;
+  }
+
+  return `KSh ${numericValue.toLocaleString()}`;
+}
+
+function resolvePackagePriceLabel(packageSelected) {
+  const matchedPackage = PACKAGES.find(
+    (pkg) => pkg.name.toLowerCase() === String(packageSelected || '').trim().toLowerCase()
+  );
+
+  if (matchedPackage) {
+    return `KSh ${matchedPackage.price}`;
+  }
+
+  const numericValue = Number(String(packageSelected || '').replace(/[^\d.]/g, ''));
+  return Number.isFinite(numericValue) && numericValue > 0 ? formatCurrencyValue(numericValue) : null;
+}
+
+function resolvePropertyPaymentPhone(property, preferredPhone = '') {
+  return String(
+    preferredPhone
+    || property?.payment_phone
+    || property?.whatsapp_phone
+    || property?.phone_number_1
+    || property?.phone
+    || ''
+  ).trim();
+}
+
+function getPaymentStatusLabel(status) {
+  const normalizedStatus = String(status || 'unpaid').trim().toLowerCase();
+
+  if (normalizedStatus === 'completed') {
+    return 'Paid';
+  }
+  if (normalizedStatus === 'initiated') {
+    return 'Awaiting Confirmation';
+  }
+  if (normalizedStatus === 'failed') {
+    return 'Failed';
+  }
+
+  return 'Unpaid';
+}
+
+function getPaymentStatusStyle(status) {
+  const normalizedStatus = String(status || 'unpaid').trim().toLowerCase();
+
+  if (normalizedStatus === 'completed') {
+    return {
+      background: '#dcfce7',
+      color: '#166534',
+    };
+  }
+
+  if (normalizedStatus === 'initiated') {
+    return {
+      background: '#dbeafe',
+      color: '#1d4ed8',
+    };
+  }
+
+  if (normalizedStatus === 'failed') {
+    return {
+      background: '#fee2e2',
+      color: '#b91c1c',
+    };
+  }
+
+  return {
+    background: '#f3f4f6',
+    color: '#374151',
+  };
+}
+
 export default function MarketerDashboard() {
   const [tab, setTab] = useState('add');
   const [user, setUser] = useState(null);
@@ -31,19 +191,23 @@ export default function MarketerDashboard() {
   const [loading, setLoading] = useState(false);
   const [notification, setNotification] = useState(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [processingImages, setProcessingImages] = useState(false);
   const navigate = useNavigate();
+  const fileInputRef = useRef(null);
+  const paymentStatusTimeoutsRef = useRef({});
+  const paymentStatusAttemptsRef = useRef({});
 
-  const [form, setForm] = useState({
-    owner_name: '', phone_number: '', property_name: '',
-    property_location: '', property_type: [], booking_type: '', package_selected: '',
-    county: '', area: ''
-  });
+  const [form, setForm] = useState(createEmptyPropertyForm);
 
   const [errors, setErrors] = useState({});
   const [rooms, setRooms] = useState([]);
   const [isAuthorized, setIsAuthorized] = useState(true);
   const [mpesaText, setMpesaText] = useState('');
   const [mpesaMessages, setMpesaMessages] = useState([]);
+  const [paymentPhones, setPaymentPhones] = useState({});
+  const [paymentLoadingPropertyId, setPaymentLoadingPropertyId] = useState(null);
+  const [paymentSyncPropertyId, setPaymentSyncPropertyId] = useState(null);
+  const [paymentPanelPropertyId, setPaymentPanelPropertyId] = useState(null);
   const [plotsResetActive, setPlotsResetActive] = useState(false);
   const [mapPins, setMapPins] = useState([]);
   const [mapLoading, setMapLoading] = useState(false);
@@ -58,13 +222,19 @@ export default function MarketerDashboard() {
   }, [navigate]);
 
   useEffect(() => { init(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => {
+    Object.values(paymentStatusTimeoutsRef.current).forEach((timeoutId) => window.clearTimeout(timeoutId));
+    paymentStatusTimeoutsRef.current = {};
+    paymentStatusAttemptsRef.current = {};
+  }, []);
   useEffect(() => {
     if (tab !== 'map') {
       return;
     }
 
+    const propertiesForMap = plotsResetActive ? [] : properties;
     const geocodeProperties = async () => {
-      if (!visibleProperties.length) {
+      if (!propertiesForMap.length) {
         setMapPins([]);
         return;
       }
@@ -76,7 +246,7 @@ export default function MarketerDashboard() {
         const cache = new Map();
         const pins = [];
 
-        for (const property of visibleProperties) {
+        for (const property of propertiesForMap) {
           const area = property.area || property.property_location || '';
           const county = property.county || '';
           const query = `${area} ${county} Kenya`.trim();
@@ -119,7 +289,7 @@ export default function MarketerDashboard() {
 
     geocodeProperties();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, visibleProperties]);
+  }, [tab, plotsResetActive, properties]);
 
   const init = async () => {
     setLoading(true);
@@ -158,8 +328,7 @@ export default function MarketerDashboard() {
         }
       }
 
-      loadProperties();
-      loadMpesaMessages();
+      await Promise.all([loadProperties(), loadMpesaMessages()]);
     } catch {
       navigate('/plotconnectmarketers');
     } finally {
@@ -170,8 +339,18 @@ export default function MarketerDashboard() {
   const loadProperties = async () => {
     const res = await api.getMyProperties();
     if (res.success) {
+      const nextProperties = res.data || [];
       setPlotsResetActive(!!res.hidden);
-      setProperties(res.data || []);
+      setProperties(nextProperties);
+      setPaymentPhones(prev => {
+        const nextPhones = {};
+
+        nextProperties.forEach((property) => {
+          nextPhones[property.id] = resolvePropertyPaymentPhone(property, prev[property.id]);
+        });
+
+        return nextPhones;
+      });
     }
   };
 
@@ -185,6 +364,15 @@ export default function MarketerDashboard() {
     setTimeout(() => setNotification(null), 5000);
   };
 
+  const clearPropertyForm = () => {
+    setForm(createEmptyPropertyForm());
+    setRooms([]);
+    setErrors({});
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
   const validateForm = () => {
     console.log('=== VALIDATION STARTED ===');
     console.log('Form state:', JSON.stringify(form, null, 2));
@@ -194,7 +382,8 @@ export default function MarketerDashboard() {
     
     // More robust validation - explicitly check each field
     const ownerName = form.owner_name;
-    const phoneNumber = form.phone_number;
+    const phoneNumber1 = form.phone_number_1;
+    const whatsappPhone = form.whatsapp_phone;
     const propertyName = form.property_name;
     const county = form.county;
     const area = form.area;
@@ -208,12 +397,17 @@ export default function MarketerDashboard() {
       newErrors.owner_name = 'Owner name is required';
     }
     
-    console.log('Checking phone_number:', typeof phoneNumber, phoneNumber === '', !!phoneNumber, Boolean(phoneNumber));
-    // Make phone optional for now - allow submission even if empty
-    // if (!phoneNumber || String(phoneNumber).trim() === '') {
-    //   console.log('ERROR: phone_number is empty');
-    //   newErrors.phone_number = 'Phone number is required';
-    // }
+    console.log('Checking phone_number_1:', typeof phoneNumber1, phoneNumber1 === '', !!phoneNumber1, Boolean(phoneNumber1));
+    if (!phoneNumber1 || String(phoneNumber1).trim() === '') {
+      console.log('ERROR: phone_number_1 is empty');
+      newErrors.phone_number_1 = 'Phone number 1 is required';
+    }
+
+    console.log('Checking whatsapp_phone:', typeof whatsappPhone, whatsappPhone === '', !!whatsappPhone, Boolean(whatsappPhone));
+    if (!whatsappPhone || String(whatsappPhone).trim() === '') {
+      console.log('ERROR: whatsapp_phone is empty');
+      newErrors.whatsapp_phone = 'WhatsApp phone is required';
+    }
     
     console.log('Checking property_name:', typeof propertyName, propertyName === '', !!propertyName, Boolean(propertyName));
     if (!propertyName || String(propertyName).trim() === '') {
@@ -255,6 +449,9 @@ export default function MarketerDashboard() {
     const validRooms = rooms.filter(r => r.room_type && r.availability && r.price !== '' && r.price !== null && r.price !== undefined);
     console.log('Valid rooms count:', validRooms.length);
     if (rooms.length > 0 && validRooms.length === 0) newErrors.rooms = 'At least one room with price and availability is required';
+    if ((form.images || []).length > MAX_PROPERTY_IMAGES) {
+      newErrors.images = `You can upload up to ${MAX_PROPERTY_IMAGES} images`;
+    }
 
     console.log('Validation errors found:', JSON.stringify(newErrors, null, 2));
     setErrors(newErrors);
@@ -262,17 +459,82 @@ export default function MarketerDashboard() {
     return Object.keys(newErrors).length === 0;
   };
 
+  const handleImageSelection = async (event) => {
+    const selectedFiles = Array.from(event.target.files || []);
+    if (selectedFiles.length === 0) {
+      return;
+    }
+
+    const imageFiles = selectedFiles.filter(file => file.type.startsWith('image/'));
+    if (imageFiles.length !== selectedFiles.length) {
+      showNotification('error', 'Only image files can be uploaded.');
+    }
+
+    const existingImages = form.images || [];
+    const remainingSlots = MAX_PROPERTY_IMAGES - existingImages.length;
+
+    if (remainingSlots <= 0) {
+      setErrors(prev => ({ ...prev, images: `You can upload up to ${MAX_PROPERTY_IMAGES} images` }));
+      showNotification('error', `You can upload a maximum of ${MAX_PROPERTY_IMAGES} images.`);
+      event.target.value = '';
+      return;
+    }
+
+    const filesToProcess = imageFiles.slice(0, remainingSlots);
+    if (imageFiles.length > remainingSlots) {
+      showNotification('error', `Only the first ${remainingSlots} image(s) were added. Maximum is ${MAX_PROPERTY_IMAGES}.`);
+    }
+
+    setProcessingImages(true);
+    try {
+      const processedImages = await Promise.all(filesToProcess.map(file => resizeImageFile(file)));
+      setForm(prev => ({
+        ...prev,
+        images: [...(prev.images || []), ...processedImages.filter(Boolean)]
+      }));
+      setErrors(prev => {
+        const nextErrors = { ...prev };
+        delete nextErrors.images;
+        return nextErrors;
+      });
+    } catch (error) {
+      console.error('Image processing error:', error);
+      showNotification('error', 'One or more images could not be processed.');
+    } finally {
+      setProcessingImages(false);
+      event.target.value = '';
+    }
+  };
+
+  const handleRemoveImage = (imageIndex) => {
+    setForm(prev => ({
+      ...prev,
+      images: (prev.images || []).filter((_, index) => index !== imageIndex)
+    }));
+    setErrors(prev => {
+      const nextErrors = { ...prev };
+      delete nextErrors.images;
+      return nextErrors;
+    });
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     
     console.log('Form data:', form);
     console.log('Rooms:', rooms);
+
+    if (processingImages) {
+      showNotification('error', 'Please wait for the selected images to finish processing.');
+      return;
+    }
     
     if (!validateForm()) {
       console.log('Validation failed, errors:', errors);
       const missingFields = [];
       if (!form.owner_name?.trim()) missingFields.push('Owner Name');
-      if (!form.phone_number?.trim()) missingFields.push('Phone Number');
+      if (!form.phone_number_1?.trim()) missingFields.push('Phone Number 1');
+      if (!form.whatsapp_phone?.trim()) missingFields.push('WhatsApp Phone');
       if (!form.property_name?.trim()) missingFields.push('Property Name');
       if (!form.county) missingFields.push('County');
       if (!form.area?.trim()) missingFields.push('Area');
@@ -294,28 +556,29 @@ export default function MarketerDashboard() {
     
     setLoading(true);
     try {
-      // Map phone_number to phone for API compatibility
-      // Send BOTH phone and phone_number fields to ensure PHP receives the expected value
       const apiData = { 
         owner_name: form.owner_name,
-        phone: form.phone_number || '',  // Use 'phone' - this is what the DB column is named
+        phone: form.phone_number_1 || '',
+        phone_number: form.phone_number_1 || '',
+        phone_number_1: form.phone_number_1 || '',
+        phone_number_2: form.phone_number_2 || '',
+        whatsapp_phone: form.whatsapp_phone || '',
         property_name: form.property_name,
         county: form.county,
         area: form.area,
         property_type: form.property_type,
         booking_type: form.booking_type,
         package_selected: form.package_selected,
+        images: form.images || [],
         rooms: rooms
       };
       
-      console.log('Submitting with phone:', apiData.phone);
+      console.log('Submitting with phone_number_1:', apiData.phone_number_1);
       const result = await api.submitProperty(apiData);
       if (result.success) {
         setShowSuccessModal(true);
         setTimeout(() => setShowSuccessModal(false), 3000);
-        setForm({ owner_name: '', phone_number: '', property_name: '', property_location: '', property_type: [], booking_type: '', package_selected: '', county: '', area: '' });
-        setRooms([]);
-        setErrors({});
+        clearPropertyForm();
         loadProperties();
       } else {
         showNotification('error', result.message || 'Failed to submit property');
@@ -331,9 +594,7 @@ export default function MarketerDashboard() {
   };
 
   const handleReset = () => {
-    setForm({ owner_name: '', phone_number: '', property_name: '', property_location: '', property_type: [], booking_type: '', package_selected: '', county: '', area: '' });
-    setRooms([]);
-    setErrors({});
+    clearPropertyForm();
     showNotification('success', 'Form cleared');
   };
 
@@ -370,6 +631,154 @@ export default function MarketerDashboard() {
       setLoading(false);
     }
   };
+
+  const handlePaymentPhoneChange = (propertyId, value) => {
+    setPaymentPhones(prev => ({
+      ...prev,
+      [propertyId]: value,
+    }));
+  };
+
+  const handleOpenPaymentPanel = (propertyId) => {
+    setPaymentPanelPropertyId(propertyId);
+  };
+
+  const handleClosePaymentPanel = () => {
+    setPaymentPanelPropertyId(null);
+  };
+
+  const clearScheduledPaymentStatusCheck = (propertyId) => {
+    const timeoutId = paymentStatusTimeoutsRef.current[propertyId];
+    if (timeoutId) {
+      window.clearTimeout(timeoutId);
+    }
+
+    delete paymentStatusTimeoutsRef.current[propertyId];
+    delete paymentStatusAttemptsRef.current[propertyId];
+  };
+
+  const schedulePaymentStatusCheck = (propertyId, delayMs = INITIAL_PAYMENT_STATUS_CHECK_DELAY_MS) => {
+    const attempts = paymentStatusAttemptsRef.current[propertyId] || 0;
+    if (attempts >= MAX_PAYMENT_STATUS_CHECK_ATTEMPTS) {
+      delete paymentStatusTimeoutsRef.current[propertyId];
+      return;
+    }
+
+    paymentStatusAttemptsRef.current[propertyId] = attempts + 1;
+
+    const existingTimeoutId = paymentStatusTimeoutsRef.current[propertyId];
+    if (existingTimeoutId) {
+      window.clearTimeout(existingTimeoutId);
+    }
+
+    paymentStatusTimeoutsRef.current[propertyId] = window.setTimeout(() => {
+      delete paymentStatusTimeoutsRef.current[propertyId];
+      handleSyncPropertyPaymentStatus(propertyId, { silent: true, notifyIfFinal: true });
+    }, delayMs);
+  };
+
+  const handleSyncPropertyPaymentStatus = async (propertyId, options = {}) => {
+    const { silent = false, notifyIfFinal = false } = options;
+
+    setPaymentSyncPropertyId(propertyId);
+    try {
+      const result = await api.syncPropertyPaymentStatus(propertyId);
+      if (result.success) {
+        const nextStatus = String(result.data?.payment_status || '').trim().toLowerCase();
+        await loadProperties();
+
+        if (!silent) {
+          showNotification('success', result.message || 'Payment status updated.');
+        } else if (notifyIfFinal && nextStatus === 'completed') {
+          showNotification('success', result.message || 'MPesa payment confirmed successfully.');
+        } else if (notifyIfFinal && nextStatus === 'failed') {
+          showNotification('error', result.message || 'MPesa payment was not completed.');
+        }
+
+        if (nextStatus === 'initiated') {
+          schedulePaymentStatusCheck(
+            propertyId,
+            silent ? REPEAT_PAYMENT_STATUS_CHECK_DELAY_MS : INITIAL_PAYMENT_STATUS_CHECK_DELAY_MS
+          );
+        } else {
+          clearScheduledPaymentStatusCheck(propertyId);
+        }
+
+        return result;
+      }
+
+      if (!silent) {
+        showNotification('error', result.message || 'Unable to check MPesa payment status.');
+      }
+
+      return result;
+    } catch (error) {
+      if (!silent) {
+        showNotification('error', 'Unable to check MPesa payment status.');
+      }
+
+      return null;
+    } finally {
+      setPaymentSyncPropertyId((current) => (current === propertyId ? null : current));
+    }
+  };
+
+  const handleInitiatePropertyPayment = async (property) => {
+    const paymentPhone = resolvePropertyPaymentPhone(property, paymentPhones[property.id]);
+
+    if (!paymentPhone) {
+      showNotification('error', 'Enter an MPesa phone number before sending the STK push.');
+      return;
+    }
+
+    setPaymentLoadingPropertyId(property.id);
+    try {
+      const result = await api.initiatePropertyPayment(property.id, paymentPhone);
+      if (result.success) {
+        showNotification('success', result.message || 'MPesa payment request sent successfully.');
+        setPaymentPanelPropertyId(null);
+        await loadProperties();
+        paymentStatusAttemptsRef.current[property.id] = 0;
+        schedulePaymentStatusCheck(property.id, INITIAL_PAYMENT_STATUS_CHECK_DELAY_MS);
+      } else {
+        showNotification('error', result.message || 'Unable to initiate MPesa payment.');
+      }
+    } catch (error) {
+      showNotification('error', 'Unable to initiate MPesa payment.');
+    } finally {
+      setPaymentLoadingPropertyId(null);
+    }
+  };
+
+  useEffect(() => {
+    const initiatedPropertyIds = new Set();
+
+    visibleProperties.forEach((property) => {
+      const propertyId = Number(property.id);
+      const paymentStatus = String(property.payment_status || '').trim().toLowerCase();
+
+      if (paymentStatus !== 'initiated') {
+        clearScheduledPaymentStatusCheck(propertyId);
+        return;
+      }
+
+      initiatedPropertyIds.add(propertyId);
+
+      if (paymentSyncPropertyId === propertyId || paymentStatusTimeoutsRef.current[propertyId]) {
+        return;
+      }
+
+      schedulePaymentStatusCheck(propertyId, INITIAL_PAYMENT_STATUS_CHECK_DELAY_MS);
+    });
+
+    Object.keys(paymentStatusTimeoutsRef.current).forEach((propertyId) => {
+      const numericPropertyId = Number(propertyId);
+      if (!initiatedPropertyIds.has(numericPropertyId)) {
+        clearScheduledPaymentStatusCheck(numericPropertyId);
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleProperties, paymentSyncPropertyId]);
 
   return (
     <div className="user-dashboard">
@@ -471,14 +880,38 @@ export default function MarketerDashboard() {
               </div>
 
               <div className="user-form-group">
-                <label>Phone Number <span className="required">*</span></label>
+                <label>Phone Number 1 <span className="required">*</span></label>
                 <input
-                  placeholder="Enter phone number"
-                  className={`input ${errors.phone_number ? 'input-error' : ''}`}
-                  value={form.phone_number}
-                  onChange={e => setForm({ ...form, phone_number: e.target.value })}
+                  type="tel"
+                  placeholder="Enter primary phone number"
+                  className={`input ${errors.phone_number_1 ? 'input-error' : ''}`}
+                  value={form.phone_number_1}
+                  onChange={e => setForm({ ...form, phone_number_1: e.target.value })}
                 />
-                {errors.phone_number && <span className="error-text">{errors.phone_number}</span>}
+                {errors.phone_number_1 && <span className="error-text">{errors.phone_number_1}</span>}
+              </div>
+
+              <div className="user-form-group">
+                <label>Phone Number 2</label>
+                <input
+                  type="tel"
+                  placeholder="Enter secondary phone number"
+                  className="input"
+                  value={form.phone_number_2}
+                  onChange={e => setForm({ ...form, phone_number_2: e.target.value })}
+                />
+              </div>
+
+              <div className="user-form-group">
+                <label>WhatsApp Phone <span className="required">*</span></label>
+                <input
+                  type="tel"
+                  placeholder="Enter WhatsApp phone number"
+                  className={`input ${errors.whatsapp_phone ? 'input-error' : ''}`}
+                  value={form.whatsapp_phone}
+                  onChange={e => setForm({ ...form, whatsapp_phone: e.target.value })}
+                />
+                {errors.whatsapp_phone && <span className="error-text">{errors.whatsapp_phone}</span>}
               </div>
 
               <div className="user-form-group">
@@ -524,6 +957,56 @@ export default function MarketerDashboard() {
                 {errors.area && <span className="error-text">{errors.area}</span>}
               </div>
             </div>
+          </div>
+
+          {/* Property Images */}
+          <div className="user-card">
+            <h2 className="user-card-title">Property Images</h2>
+            <div className="user-form-group">
+              <label>Select Images</label>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className={`input ${errors.images ? 'input-error' : ''}`}
+                onChange={handleImageSelection}
+              />
+              <span className="user-file-helper">
+                Upload up to {MAX_PROPERTY_IMAGES} images.
+              </span>
+              {processingImages && (
+                <span className="user-file-helper">Processing selected images...</span>
+              )}
+              {errors.images && <span className="error-text">{errors.images}</span>}
+            </div>
+
+            {(form.images || []).length > 0 && (
+              <>
+                <div className="user-image-count">
+                  {(form.images || []).length} / {MAX_PROPERTY_IMAGES} images selected
+                </div>
+                <div className="user-image-preview-grid">
+                  {(form.images || []).map((image, index) => (
+                    <div key={`${index}-${image.slice(0, 20)}`} className="user-image-preview-card">
+                      <img
+                        src={image}
+                        alt={`Property preview ${index + 1}`}
+                        className="user-image-preview"
+                        loading="lazy"
+                      />
+                      <button
+                        type="button"
+                        className="user-image-remove"
+                        onClick={() => handleRemoveImage(index)}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
 
           {/* Booking Type */}
@@ -673,8 +1156,8 @@ export default function MarketerDashboard() {
             <button type="button" onClick={handleReset} className="btn btn-secondary">
               Clear Form
             </button>
-            <button type="submit" className="btn btn-primary" disabled={loading}>
-              {loading ? 'Submitting...' : 'Submit Property'}
+            <button type="submit" className="btn btn-primary" disabled={loading || processingImages}>
+              {processingImages ? 'Processing Images...' : loading ? 'Submitting...' : 'Submit Property'}
             </button>
           </div>
         </form>
@@ -706,12 +1189,26 @@ export default function MarketerDashboard() {
             </div>
           ) : (
             <div className="user-properties-grid">
-              {visibleProperties.map(property => (
+              {visibleProperties.map((property) => {
+                const paymentStatus = String(property.payment_status || 'unpaid').trim().toLowerCase();
+                const canInitiatePayment = !['approved'].includes(String(property.status || '').trim().toLowerCase())
+                  && ['unpaid', 'failed', ''].includes(paymentStatus);
+                const isPaymentPanelOpen = paymentPanelPropertyId === property.id;
+                const showPaymentPanel = !canInitiatePayment || isPaymentPanelOpen;
+                const paymentPhone = resolvePropertyPaymentPhone(property, paymentPhones[property.id]);
+                const numericPaymentAmount = Number(property.payment_amount);
+                const packagePriceLabel = (Number.isFinite(numericPaymentAmount) && numericPaymentAmount > 0
+                  ? formatCurrencyValue(numericPaymentAmount)
+                  : null)
+                  || resolvePackagePriceLabel(property.package_selected);
+                const packageDisplayLabel = packagePriceLabel || 'Not set';
+
+                return (
                 <div key={property.id} className="user-property-card">
                   <div className="user-property-header">
                     <h3 className="user-property-name">{property.property_name}</h3>
-                    <span className={`user-property-status status-${property.status}`}>
-                      {property.status}
+                    <span className={`user-property-status status-${property.status || 'pending'}`}>
+                      {property.status || 'pending'}
                     </span>
                   </div>
                   
@@ -721,16 +1218,22 @@ export default function MarketerDashboard() {
                       <span className="detail-value">{property.owner_name}</span>
                     </div>
                     <div className="user-property-detail">
-                      <span className="detail-label">Phone:</span>
-                      <span className="detail-value">{property.phone}</span>
+                      <span className="detail-label">Phone Number 1:</span>
+                      <span className="detail-value">{property.phone_number_1 || property.phone || 'N/A'}</span>
+                    </div>
+                    {property.phone_number_2 && (
+                      <div className="user-property-detail">
+                        <span className="detail-label">Phone Number 2:</span>
+                        <span className="detail-value">{property.phone_number_2}</span>
+                      </div>
+                    )}
+                    <div className="user-property-detail">
+                      <span className="detail-label">WhatsApp:</span>
+                      <span className="detail-value">{property.whatsapp_phone || 'N/A'}</span>
                     </div>
                     <div className="user-property-detail">
-                      <span className="detail-label">Location:</span>
-                      <span className="detail-value">{property.property_location}</span>
-                    </div>
-                    <div className="user-property-detail">
-                      <span className="detail-label">Country:</span>
-                      <span className="detail-value">{property.country || 'N/A'}</span>
+                      <span className="detail-label">County:</span>
+                      <span className="detail-value">{property.county || 'N/A'}</span>
                     </div>
                     <div className="user-property-detail">
                       <span className="detail-label">Area:</span>
@@ -741,9 +1244,13 @@ export default function MarketerDashboard() {
                       <span className="detail-value">{property.property_type}</span>
                     </div>
                     <div className="user-property-detail">
+                      <span className="detail-label">Package:</span>
+                      <span className="detail-value">{packageDisplayLabel}</span>
+                    </div>
+                    <div className="user-property-detail">
                       <span className="detail-label">Date Added:</span>
                       <span className="detail-value">
-                        {property.created_at ? new Date(property.created_at).toLocaleDateString() : 'N/A'}
+                        {formatPropertyDateTime(property.created_at)}
                       </span>
                     </div>
                   </div>
@@ -761,13 +1268,219 @@ export default function MarketerDashboard() {
                     </div>
                   )}
 
+                  {property.images && property.images.length > 0 && (
+                    <div className="user-property-images">
+                      <h4>Property Images</h4>
+                      <div className="user-property-image-grid">
+                        {property.images.map((image, idx) => {
+                          const imageSrc = normalizePropertyImage(image);
+                          if (!imageSrc) {
+                            return null;
+                          }
+
+                          return (
+                            <img
+                              key={`${property.id}-image-${idx}`}
+                              src={imageSrc}
+                              alt={`${property.property_name} ${idx + 1}`}
+                              className="user-property-image-thumb"
+                              loading="lazy"
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {showPaymentPanel ? (
+                    <div
+                      className="user-property-rooms"
+                      style={{
+                        marginTop: '1rem',
+                        padding: '1rem',
+                        border: '1px solid rgba(209, 213, 219, 0.9)',
+                        borderRadius: '14px',
+                        background: '#f8fafc',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: '0.75rem',
+                          flexWrap: 'wrap',
+                          marginBottom: '0.75rem',
+                        }}
+                      >
+                        <h4 style={{ margin: 0 }}>Package Payment</h4>
+                        <span
+                          style={{
+                            ...getPaymentStatusStyle(paymentStatus),
+                            padding: '0.35rem 0.75rem',
+                            borderRadius: '999px',
+                            fontSize: '0.8rem',
+                            fontWeight: 700,
+                          }}
+                        >
+                          {getPaymentStatusLabel(paymentStatus)}
+                        </span>
+                      </div>
+
+                      <div className="user-property-details">
+                        <div className="user-property-detail">
+                          <span className="detail-label">Payment Amount:</span>
+                          <span className="detail-value">{packageDisplayLabel}</span>
+                        </div>
+                        <div className="user-property-detail">
+                          <span className="detail-label">Payment Phone:</span>
+                          <span className="detail-value">{paymentPhone || 'Not requested yet'}</span>
+                        </div>
+                        {property.payment_requested_at && (
+                          <div className="user-property-detail">
+                            <span className="detail-label">Requested At:</span>
+                            <span className="detail-value">{formatPropertyDateTime(property.payment_requested_at)}</span>
+                          </div>
+                        )}
+                        {property.paid_at && (
+                          <div className="user-property-detail">
+                            <span className="detail-label">Paid At:</span>
+                            <span className="detail-value">{formatPropertyDateTime(property.paid_at)}</span>
+                          </div>
+                        )}
+                        {property.mpesa_receipt_number && (
+                          <div className="user-property-detail">
+                            <span className="detail-label">Receipt:</span>
+                            <span className="detail-value">{property.mpesa_receipt_number}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {!!property.payment_result_desc && (
+                        <p style={{ margin: '0.85rem 0 0', color: '#475569', lineHeight: '1.5' }}>
+                          {property.payment_result_desc}
+                        </p>
+                      )}
+
+                      {canInitiatePayment && (
+                        <div style={{ marginTop: '1rem' }}>
+                          <label
+                            htmlFor={`payment-phone-${property.id}`}
+                            style={{ display: 'block', fontWeight: 600, marginBottom: '0.45rem' }}
+                          >
+                            MPesa Phone Number
+                          </label>
+                          <input
+                            id={`payment-phone-${property.id}`}
+                            type="tel"
+                            className="input"
+                            value={paymentPhone}
+                            onChange={(event) => handlePaymentPhoneChange(property.id, event.target.value)}
+                            placeholder="07... or 2547..."
+                            style={{ width: '100%', marginBottom: '0.75rem' }}
+                          />
+                          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                            <button
+                              type="button"
+                              className="btn btn-primary"
+                              onClick={() => handleInitiatePropertyPayment(property)}
+                              disabled={paymentLoadingPropertyId === property.id}
+                            >
+                              {paymentLoadingPropertyId === property.id
+                                ? 'Sending STK...'
+                                : packagePriceLabel
+                                  ? `Pay ${packagePriceLabel} with MPesa`
+                                  : 'Pay with MPesa'}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-secondary"
+                              onClick={handleClosePaymentPanel}
+                              disabled={paymentLoadingPropertyId === property.id}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                          <p style={{ margin: '0.6rem 0 0', color: '#64748b', fontSize: '0.9rem' }}>
+                            Use the payer&apos;s Safaricom number. We&apos;ll send the STK push and update this card after confirmation.
+                          </p>
+                        </div>
+                      )}
+
+                      {paymentStatus === 'initiated' && (
+                        <>
+                          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginTop: '1rem' }}>
+                            <button
+                              type="button"
+                              className="btn btn-secondary"
+                              onClick={() => handleSyncPropertyPaymentStatus(property.id)}
+                              disabled={paymentSyncPropertyId === property.id}
+                            >
+                              {paymentSyncPropertyId === property.id ? 'Checking Daraja...' : 'Check Payment Status'}
+                            </button>
+                          </div>
+                          <div className="user-alert user-alert-success" style={{ marginTop: '1rem' }}>
+                            An MPesa prompt has been sent. Complete the payment on the phone and we&apos;ll keep checking Daraja for confirmation.
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    <div
+                      className="user-property-rooms"
+                      style={{
+                        marginTop: '1rem',
+                        padding: '1rem',
+                        border: '1px solid rgba(209, 213, 219, 0.9)',
+                        borderRadius: '14px',
+                        background: '#f8fafc',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: '0.75rem',
+                          flexWrap: 'wrap',
+                          marginBottom: '0.75rem',
+                        }}
+                      >
+                        <h4 style={{ margin: 0 }}>Package Payment</h4>
+                        <span
+                          style={{
+                            ...getPaymentStatusStyle(paymentStatus),
+                            padding: '0.35rem 0.75rem',
+                            borderRadius: '999px',
+                            fontSize: '0.8rem',
+                            fontWeight: 700,
+                          }}
+                        >
+                          {getPaymentStatusLabel(paymentStatus)}
+                        </span>
+                      </div>
+                      <div className="user-property-detail" style={{ marginBottom: '0.75rem' }}>
+                        <span className="detail-label">Amount to Pay:</span>
+                        <span className="detail-value">{packageDisplayLabel}</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        onClick={() => handleOpenPaymentPanel(property.id)}
+                      >
+                        {packagePriceLabel ? `Make Payment (${packagePriceLabel})` : 'Make Payment'}
+                      </button>
+                    </div>
+                  )}
+
                   <div className="user-property-footer">
                     <span className="user-property-date">
-                      Added: {property.created_at ? new Date(property.created_at).toLocaleDateString() : 'N/A'}
+                      Added: {formatPropertyDateTime(property.created_at)}
                     </span>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -867,7 +1580,7 @@ export default function MarketerDashboard() {
         <div className="user-card">
           <h2 className="user-card-title">MPesa Transaction Message</h2>
           <p style={{ color: '#6b7280', marginBottom: '1rem' }}>
-            Paste MPesa transaction message from the property owner or client, then send it to admin.
+            Start package payments from the My Properties tab. Use this section only when you need to forward a manual MPesa message to admin.
           </p>
           <form onSubmit={handleSendMpesaMessage}>
             <div className="user-form-group">

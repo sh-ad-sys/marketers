@@ -46,13 +46,13 @@ export default function AdminLogin() {
 
       localStorage.setItem('isLoggedIn', 'true');
       localStorage.setItem('role', 'admin');
-      localStorage.setItem('username', result.data?.email || result.username || email.trim());
-      localStorage.setItem('name', result.data?.name || 'Admin');
-      if (result.token) {
-        localStorage.setItem('token', result.token);
+      localStorage.setItem('username', result.data?.username || result.data?.email || result.username || email.trim());
+      localStorage.setItem('name', result.data?.full_name || result.data?.name || result.data?.username || 'Admin');
+      if (result.data?.token || result.token) {
+        localStorage.setItem('token', result.data?.token || result.token);
       }
 
-      navigate('/admin');
+      navigate('/dashboard');
     } catch (err) {
       setError(err.response?.data?.message || err.message || 'Login failed. Please try again.');
     } finally {
@@ -64,13 +64,13 @@ export default function AdminLogin() {
     <div className="user-dashboard">
       <div className="user-dashboard-header" style={{ justifyContent: 'center' }}>
         <div style={{ textAlign: 'center' }}>
-          <h1>PlotConnect</h1>
-          <p className="user-subtitle">Admin login</p>
+          <h1>PlotConnect Ledger</h1>
+          <p className="user-subtitle">Standalone ledger frontend</p>
         </div>
       </div>
 
       <div className="user-card" style={{ maxWidth: '450px', margin: '0 auto', width: '90%' }}>
-        <h2 className="user-card-title">Admin Login</h2>
+        <h2 className="user-card-title">Ledger Login</h2>
 
         {error && <div className="user-alert user-alert-error">{error}</div>}
 
